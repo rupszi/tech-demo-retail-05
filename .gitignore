@@ -1,0 +1,29 @@
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.json.key
+service-account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Local runtime state (generated)
+data/*.duckdb
+data/*.sqlite
+data/*.sqlite-journal
+logs/
+.traces/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
