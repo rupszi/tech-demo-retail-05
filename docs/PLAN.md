@@ -257,10 +257,10 @@ The client answered all twelve questions on 2026-10-04 ([QUESTIONS.md](QUESTIONS
 
 ### Phase 11: Scope by brand, from token claims
 Code: `safety/profiles.py`, `safety/scoping.py`, `config/users.*.json`, `agent/prompts.py`, `cli/app.py`.
-- [ ] Brand is the only scope: no department scope in code, configuration or tests
-- [ ] "All brands" is an explicit grant; a profile with no brand scope gets zero rows from every table
-- [ ] A profile is built from token claims; a token without a subject or with malformed scopes is rejected
-- [ ] The hostile and valid query corpora pass for every profile, and the scoping tests still match ground truth
+- [x] Brand is the only scope: no department scope in code, configuration or tests
+- [x] "All brands" is an explicit grant; a profile with no brand scope gets zero rows from every table
+- [x] A profile is built from token claims; a token without a subject or with malformed scopes is rejected
+- [x] The hostile and valid query corpora pass for every profile, and the scoping tests still match ground truth
 
 ### Phase 12: Permanent delete
 Code: `reports/store.py`, `agent/graph.py`, `agent/session.py`, `agent/prompts.py`, `cli/app.py`.

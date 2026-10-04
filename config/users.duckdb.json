@@ -1,8 +1,7 @@
 {
   "users": [
-    {"user_id": "alice", "name": "Alice (Women's casual brands)", "brands": ["Alder & Finch", "Brightwave", "Foxglove"], "departments": null},
-    {"user_id": "bob", "name": "Bob (Men's outdoor brands)", "brands": ["Cobalt Row", "Driftline", "Granite Peak"], "departments": null},
-    {"user_id": "dan", "name": "Dan (Men's department)", "brands": null, "departments": ["Men"]},
-    {"user_id": "carol", "name": "Carol (CEO, all products)", "brands": null, "departments": null}
+    {"sub": "alice", "name": "Alice (women's casual brands)", "scopes": ["brand:Alder & Finch", "brand:Brightwave", "brand:Foxglove"]},
+    {"sub": "bob", "name": "Bob (men's outdoor brands)", "scopes": ["brand:Cobalt Row", "brand:Driftline", "brand:Granite Peak"]},
+    {"sub": "carol", "name": "Carol (CEO)", "scopes": ["brand:*"]}
   ]
 }

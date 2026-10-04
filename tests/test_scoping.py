@@ -5,17 +5,14 @@ import pytest
 from retail_agent.safety import UserProfile
 from retail_agent.safety.policy import PII_COLUMNS, SAFE_USER_COLUMNS
 
-RESTRICTED = ["alice", "bob", "dan"]
+RESTRICTED = ["alice", "bob"]
 
 
 def in_scope_products(frames, profile):
     products = frames["products"]
-    mask = products["id"].notna()
-    if profile.brands is not None:
-        mask &= products["brand"].isin(profile.brands)
-    if profile.departments is not None:
-        mask &= products["department"].isin(profile.departments)
-    return set(products.loc[mask, "id"])
+    if profile.all_brands:
+        return set(products["id"])
+    return set(products.loc[products["brand"].isin(profile.brands), "id"])
 
 
 def ids(gateway, user, sql):
@@ -96,15 +93,19 @@ def test_another_users_brand_returns_nothing(gateway):
     assert set(frame["brand"]) == {"Cobalt Row", "Driftline", "Granite Peak"}
 
 
-def test_department_scope(gateway):
-    frame = gateway("dan").run("SELECT DISTINCT department FROM products").frame
-    assert set(frame["department"]) == {"Men"}
-
-
-def test_empty_allow_list_sees_nothing(gateway):
-    nobody = UserProfile("nobody", "No access", brands=())
+def test_a_user_with_no_brand_scope_sees_nothing(gateway):
+    """Deny by default: a token that grants no brand grants no rows."""
+    nobody = UserProfile.from_claims({"sub": "nobody", "scopes": []})
+    assert not nobody.all_brands and nobody.brands == ()
     for table in ("products", "order_items", "orders", "users"):
         assert gateway(nobody).run(f"SELECT COUNT(*) AS n FROM {table}").frame["n"][0] == 0
+
+
+def test_the_all_brands_grant_is_explicit(gateway, frames):
+    ceo = UserProfile.from_claims({"sub": "ceo", "scopes": ["brand:*"]})
+    assert gateway(ceo).run("SELECT COUNT(*) AS n FROM products").frame["n"][0] == len(
+        frames["products"]
+    )
 
 
 def test_brand_values_cannot_inject_sql(gateway):

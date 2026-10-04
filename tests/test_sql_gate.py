@@ -8,7 +8,7 @@ from retail_agent.safety.policy import PII_COLUMNS
 
 from .sql_cases import REJECTED, VALID
 
-USERS = ["alice", "bob", "dan", "carol"]
+USERS = ["alice", "bob", "carol"]
 
 
 def check(sql, profile, max_rows=500):

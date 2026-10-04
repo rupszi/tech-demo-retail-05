@@ -30,8 +30,8 @@ Plan and gates: [PLAN.md, section 9](PLAN.md#9-revision-after-the-clients-answer
 | # | Phase | Status | Gates met | Evidence / notes |
 |---|---|:-:|:-:|---|
 | 10 | Record the answers and the plan | ✅ | 2 / 2 | `QUESTIONS.md` holds all twelve answers and what each changes; `PLAN.md` section 9 has the phases, gates and tests |
-| 11 | Scope by brand, from token claims | 🟦 | 0 / 4 | |
-| 12 | Permanent delete | ⬜ | 0 / 5 | |
+| 11 | Scope by brand, from token claims | ✅ | 4 / 4 | `test_profiles.py`: brand scopes, the explicit all-brands grant, no scope means no access, other scope kinds ignored, a missing subject and malformed scopes rejected. `test_scoping.py`: a profile with no brand scope gets zero rows from all four tables; rows per user still equal ground truth. `test_sql_gate.py`: both corpora pass for all three profiles |
+| 12 | Permanent delete | 🟦 | 0 / 5 | |
 | 13 | BigQuery by default, and a BigQuery test group | ⬜ | 0 / 4 | |
 | 14 | Time limit per question | ⬜ | 0 / 2 | |
 | 15 | Documentation in step with the code | ⬜ | 0 / 6 | |

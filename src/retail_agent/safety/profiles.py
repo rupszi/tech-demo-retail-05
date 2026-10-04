@@ -1,8 +1,12 @@
-"""Who is asking, and which products they may analyse.
+"""Who is asking, and which brands they may analyse.
 
-In production the identity comes from SSO and the product scope from an entitlements service;
-here both come from a JSON file per data backend (`config/users.<backend>.json`), because the mock
-data and the real dataset have different brands.
+In production the web front end signs the user in and sends a signed JWT with every request. The
+API verifies the token and passes its claims to `UserProfile.from_claims`. Nothing else decides
+what a user may see: not the request body, and not the model.
+
+The prototype has no front end, so `config/users.<backend>.json` holds sample token payloads and
+the CLI picks one with `--user`. There is one file per data backend because the mock data and the
+real dataset have different brands.
 """
 
 from __future__ import annotations
@@ -10,40 +14,50 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+BRAND_SCOPE = "brand:"
+ALL_BRANDS = "*"
 
 
 @dataclass(frozen=True)
 class UserProfile:
     user_id: str
     name: str
-    brands: tuple[str, ...] | None = None  # None = no brand restriction
-    departments: tuple[str, ...] | None = None  # None = no department restriction
+    brands: tuple[str, ...] = ()  # the brands this user may analyse
+    all_brands: bool = False  # an explicit grant, for example for the CEO
 
-    @property
-    def is_unrestricted(self) -> bool:
-        return self.brands is None and self.departments is None
+    @classmethod
+    def from_claims(cls, claims: dict[str, Any]) -> UserProfile:
+        """Build a profile from verified token claims.
+
+        Access is denied by default: a token with no brand scope describes a user who may see
+        nothing. Seeing every brand takes the explicit scope `brand:*`. Scopes of other kinds are
+        ignored, so a token issued for another purpose grants nothing here.
+        """
+        subject = claims.get("sub")
+        if not isinstance(subject, str) or not subject.strip():
+            raise ValueError("The token has no subject (sub).")
+        scopes = claims.get("scopes", [])
+        if not isinstance(scopes, list) or not all(isinstance(s, str) for s in scopes):
+            raise ValueError("The token's scopes must be a list of strings.")
+        granted = [s[len(BRAND_SCOPE) :].strip() for s in scopes if s.startswith(BRAND_SCOPE)]
+        name = claims.get("name")
+        return cls(
+            user_id=subject,
+            name=name if isinstance(name, str) and name else subject,
+            brands=tuple(dict.fromkeys(b for b in granted if b and b != ALL_BRANDS)),
+            all_brands=ALL_BRANDS in granted,
+        )
 
     def describe_scope(self) -> str:
-        parts = []
-        if self.brands is not None:
-            parts.append("brands: " + (", ".join(self.brands) or "none"))
-        if self.departments is not None:
-            parts.append("departments: " + (", ".join(self.departments) or "none"))
-        return "; ".join(parts) or "all products"
-
-
-def _tuple_or_none(value: list[str] | None) -> tuple[str, ...] | None:
-    return None if value is None else tuple(value)
+        if self.all_brands:
+            return "all brands"
+        return "brands: " + ", ".join(self.brands) if self.brands else "no brands"
 
 
 def load_profiles(path: str | Path) -> dict[str, UserProfile]:
-    data = json.loads(Path(path).read_text())
-    return {
-        u["user_id"]: UserProfile(
-            user_id=u["user_id"],
-            name=u["name"],
-            brands=_tuple_or_none(u.get("brands")),
-            departments=_tuple_or_none(u.get("departments")),
-        )
-        for u in data["users"]
-    }
+    """Read sample token payloads and return a profile for each, keyed by subject."""
+    payloads = json.loads(Path(path).read_text(encoding="utf-8"))["users"]
+    profiles = [UserProfile.from_claims(claims) for claims in payloads]
+    return {profile.user_id: profile for profile in profiles}

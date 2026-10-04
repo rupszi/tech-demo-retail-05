@@ -5,7 +5,7 @@ def test_list_users(capsys, monkeypatch):
     monkeypatch.setenv("DATA_BACKEND", "duckdb")
     assert main(["--list-users"]) == 0
     out = capsys.readouterr().out
-    assert "alice" in out and "carol" in out and "all products" in out
+    assert "alice" in out and "carol" in out and "all brands" in out
 
 
 def test_unknown_user_is_reported_without_a_stack_trace(capsys, monkeypatch):

@@ -2,7 +2,7 @@
 
 Every reference to a real table is replaced by a subquery that only exposes what the user may see:
 
-- `products`, `order_items`: only rows for products in the user's scope
+- `products`, `order_items`: only rows for products of the user's brands
 - `orders`: only orders that contain at least one in-scope item
 - `users`: only customers who bought an in-scope product, and never the PII columns
 
@@ -30,15 +30,12 @@ def _qualified(table: str, dataset: str) -> exp.Table:
 
 
 def _product_filter(profile: UserProfile) -> exp.Expression | None:
-    conditions: list[exp.Expression] = []
-    for column, values in (("brand", profile.brands), ("department", profile.departments)):
-        if values is None:
-            continue
-        if not values:  # an empty allow-list means "nothing"
-            conditions.append(exp.false())
-        else:
-            conditions.append(exp.column(column).isin(*[exp.Literal.string(v) for v in values]))
-    return exp.and_(*conditions) if conditions else None
+    """The condition on `products` for this user. None means every brand is allowed."""
+    if profile.all_brands:
+        return None
+    if not profile.brands:
+        return exp.false()  # no brand scope means no access
+    return exp.column("brand").isin(*[exp.Literal.string(b) for b in profile.brands])
 
 
 def _columns(table: str) -> list[str]:
@@ -74,7 +71,7 @@ def scope_tables(tables: list[exp.Table], profile: UserProfile, dataset: str) ->
     """Rewrite each table reference in place. Call with the list collected before any rewrite."""
     for table in tables:
         name = table.name.lower()
-        if profile.is_unrestricted and name != "users":
+        if profile.all_brands and name != "users":
             # Nothing to filter: just pin the reference to the fully qualified table.
             qualified = _qualified(name, dataset)
             table.set("this", qualified.this)
