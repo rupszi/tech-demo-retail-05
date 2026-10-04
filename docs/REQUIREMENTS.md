@@ -2,11 +2,14 @@
 
 This page goes through the brief item by item: the eight requirements, the deliverables, the expected capabilities and the wider asks. For each one it says what was done and where to see it.
 
-Three statuses are used:
+The statuses used:
 
 - **Built**: in the prototype, with tests.
 - **Design**: described in the design document. The brief asks for these as design only.
+- **Done**: a deliverable or an ask that is complete.
 - **Partly**: done, with a gap that is stated in the same row.
+
+Where a status needs a word more ("Built, with a stated limit"), the row says what it is.
 
 Section numbers refer to [DESIGN.md](DESIGN.md); decisions (D-08 and so on) to [DECISIONS.md](DECISIONS.md); sessions and exchanges to the recorded [example run](EXAMPLE_RUN.md). Code paths are under `src/retail_agent/`.
 
@@ -35,7 +38,7 @@ Section numbers refer to [DESIGN.md](DESIGN.md); decisions (D-08 and so on) to [
 | 2.3 | Error handling and fallback strategies | Done | [5](DESIGN.md#5-error-handling-and-fallbacks), [3.5](DESIGN.md#35-resilience) |
 | 2.4 | Setup instructions and an example run | Done | [README](../README.md), [EXAMPLE_RUN.md](EXAMPLE_RUN.md) |
 | 2.5 | How each requirement is handled | Done | [3.1 to 3.8](DESIGN.md#3-the-eight-requirements), and the table above |
-| 3 | A working prototype: ask questions naturally, discuss them, create a report with action items; it supports safety, oversight, resilience and observability | Done | `src/retail_agent/`; the four rows marked Built above |
+| 3 | A working prototype: ask questions naturally, discuss them, create a report with action items; it supports safety, oversight, resilience and observability | Done | `src/retail_agent/`; the rows marked Built above (requirements 2, 3, 5 and 7) |
 | 4 | A CLI for the chat | Done | `uv run retail-agent`; `cli/app.py` |
 | 5 | Runnable on another machine | Done | [README](../README.md). Checked from a fresh clone, with `uv` and with `pip` |
 | 6 | A framework of choice, why it was chosen, and the level of experience with it | Done | LangGraph: [4](DESIGN.md#4-technology-choices-and-why), D-17 |
@@ -62,7 +65,7 @@ Each of these is shown in the recorded [example run](EXAMPLE_RUN.md), against th
 
 | The brief asks | Status | How it is met | Where |
 |---|---|---|---|
-| Easily extendable with new capabilities (graphs, mail, web search) | Partly | A tool that needs only its arguments is a declaration, a method and one line in a table of handlers; the conversation graph does not change, and a test adds a tool this way. **Gap:** the confirmation step is written for deleting reports. A second tool that needs confirmation, such as sending mail, would need that step made general first | [8](DESIGN.md#8-extending-it); `agent/tools.py`; `test_a_new_tool_needs_no_change_to_the_graph` |
+| Easily extendable with new capabilities (graphs, mail, web search) | Partly | A tool that needs only its arguments is a declaration, a method and one line in a table of handlers; the conversation graph does not change: a test puts a handler into the table and the graph calls it. **Gap:** the confirmation step is written for deleting reports. A second tool that needs confirmation, such as sending mail, would need that step made general first | [8](DESIGN.md#8-extending-it); `agent/tools.py`; `test_a_new_tool_needs_no_change_to_the_graph` |
 | Easily extendable with new data sources | Partly | All data access goes through one interface with two implementations, BigQuery and a local database. **Gap:** the safety rules (allowed tables, personal data columns, how a table is limited to a user's brands) are written for these four tables. A second source would need them handed to the gateway as a policy | [8](DESIGN.md#8-extending-it), D-01; `data/base.py`, `safety/policy.py` |
 | Which services are used, how the components communicate, where data is stored and handled | Done | Building blocks with a reason for each, the API and the protocol on every connection, and a table of where each kind of data lives | [1](DESIGN.md#1-architecture), [6](DESIGN.md#6-where-data-lives) |
 | Detailed enough to understand how the system works in production | Done | Identity and scopes, the path of a question, what fails and what happens then, and how it is released, secured, backed up and paid for | [1](DESIGN.md#1-architecture) to [7](DESIGN.md#7-running-it-in-production) |
@@ -72,6 +75,6 @@ Each of these is shown in the recorded [example run](EXAMPLE_RUN.md), against th
 
 Stated here so that nobody has to find it out. The full list is in [9](DESIGN.md#9-limits-of-the-prototype).
 
-- The recorded answers come from the smallest model in the list, because of the free-tier quota. It sometimes words a conclusion more strongly than its own numbers support. Every figure in the example run was checked against the results of its queries; the sentences that are wrong are named at the top of that page. A check that every statement follows from the query results is designed (3.6) and not built.
+- The recorded answers come from the smallest model in the list, because of the free-tier quota. It sometimes words a conclusion more strongly than its own numbers support. Every figure in the example run was checked against the results of its queries; the sentences that are wrong are named at the top of that page. Two checks for this are designed (3.6) and not built: one that every figure follows from the query results, and one in which a second model compares each conclusion with the results.
 - The token is not verified, because there is no front end to issue one. The mapping from its claims to what a user may see is built and tested.
 - The parts the brief asks for as design only are design only: the real Golden bucket, the learning loops, the evaluation with the real model, the admin page and its quality gate, and the cost cap in dollars.

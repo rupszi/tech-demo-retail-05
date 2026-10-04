@@ -7,7 +7,7 @@ Built for the OpsFleet technical assignment. The design is in [docs/DESIGN.md](d
 What the prototype does:
 
 - **Answers questions from data.** It writes and runs SQL itself, across several queries when a question needs it, and corrects its own SQL when a query fails.
-- **Keeps each user to their own brands.** Every query is rewritten in code so a user only ever sees the products and sales of the brands their token grants. The CEO sees all; a user with no brand scope sees nothing. (An order that also contains other brands is visible with the user's own items only; see [D-08](docs/DECISIONS.md#d-08-per-user-brand-scope-is-applied-by-rewriting-table-references).)
+- **Keeps each user to their own brands.** Every query is rewritten in code so a user only ever sees the products and sales of the brands their token grants. The CEO sees all; a user with no brand scope sees nothing. (An order that also contains other brands is visible, with only the user's own items; its item count still includes the others. See [D-08](docs/DECISIONS.md#d-08-per-user-brand-scope-is-applied-by-rewriting-table-references).)
 - **Never shows personal data.** Names, emails, addresses, postal codes and coordinates cannot be queried at all; customers appear as IDs.
 - **Asks before deleting.** Deleting saved reports needs the user's confirmation, which the model cannot give. Deleting is permanent, and the confirmation says so.
 - **Survives failures.** Bad SQL, empty results, rate limits and outages are handled without crashing or running up cost.

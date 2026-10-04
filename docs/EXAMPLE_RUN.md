@@ -18,7 +18,8 @@ models allow 20 requests a day each, and that quota was used up when these sessi
 so every answer here came from the third model, `gemini-3.5-flash-lite`. The switch is automatic
 and needs no action from the user. Two answers were slower than the rest (28 and 50 seconds)
 because that model ran into its own per-minute limit; the assistant waited for it, for 23 and 27
-seconds, saying so on screen while it waited. The `/trace` in session 3 shows one of those waits.
+seconds. On a terminal the spinner says so while it waits; a piped recording does not capture
+that. The `/trace` in session 3 shows one of those waits.
 
 **What was checked, and what to read critically.** Every figure in these sessions, in the tables
 and in the text, was checked against the results of its queries by running the stored SQL again.
@@ -34,9 +35,11 @@ and some of those are wrong:
   August.
 
 The instructions tell the model to state a cause only if a result supports it and to check such
-words against the figures, and it still does this. Catching a sentence that does not follow from
-the query results is what the grounding check in [DESIGN 3.6](DESIGN.md#36-quality-assurance) is
-for. It is not built. The model also does small sums of its own in spite of its instructions
+words against the figures, and it still does this. A check that every figure follows from the
+query results would not catch these sentences, because their figures are right. What would is the
+check for supported conclusions in [DESIGN 3.6](DESIGN.md#36-quality-assurance), in which a second
+model compares each conclusion with the results. Neither check is built. The model also does small
+sums of its own in spite of its instructions
 ("a 45.4% increase", "37.2% of total revenue"); the ones in these sessions are right.
 
 **Recording as a test.** Earlier recordings of the churn question ended badly twice: once at the

@@ -361,7 +361,7 @@ The test suite contains 80 hostile queries, all rejected, and 24 legitimate anal
 
 **Personal data.** The client confirmed the list: names, email, address, postal code and coordinates. These are seven columns of `users`. The real `users` table only ever appears inside a subquery that selects the remaining columns by name, so `SELECT *` and whole-row expressions cannot reach them. Customers are identified by ID, which the client confirmed is fine and which keeps "top customers" working. Age, gender, city, state and country may be shown for an individual customer; the client confirmed this too. Details are in [D-09](DECISIONS.md#d-09-personal-data-is-kept-out-by-a-column-allow-list-customers-are-shown-by-id).
 
-**Each user sees only their brands.** Every table reference is replaced with a subquery filtered to the user's brands. The filter is attached to the table, so it holds in joins, subqueries and unions. The CEO's token carries the explicit all-brands scope; a token with no brand scope gets zero rows from every table. An order that mixes a user's brands with others is visible to them, but only their own items and the revenue of those items are. Details and trade-offs are in [D-08](DECISIONS.md#d-08-per-user-brand-scope-is-applied-by-rewriting-table-references). For a user limited to three brands, `SELECT COUNT(*) FROM order_items` runs as:
+**Each user sees only their brands.** Every table reference is replaced with a subquery filtered to the user's brands. The filter is attached to the table, so it holds in joins, subqueries and unions. The CEO's token carries the explicit all-brands scope; a token with no brand scope gets zero rows from every table. An order that mixes a user's brands with others is visible to them, with only their own items and the revenue of those items; its item count still includes the others. Details and trade-offs are in [D-08](DECISIONS.md#d-08-per-user-brand-scope-is-applied-by-rewriting-table-references). For a user limited to three brands, `SELECT COUNT(*) FROM order_items` runs as:
 
 ```sql
 SELECT COUNT(*) FROM (
@@ -544,6 +544,7 @@ This was exercised for real: on the free tier the two larger models allow 20 req
 5. **Evaluation with the real model.** A fixed set of questions run against the real model and a fixed copy of the data, scored automatically:
    - *Result accuracy.* For questions with a known answer (the golden trios supply them), the result of the assistant's query is compared with the result of the analyst's query. Comparing results, not SQL text, accepts any correct query.
    - *Grounding.* Every figure in an answer must appear in, or follow from, the query results of that turn. This is a mechanical check, and it is the one that would have caught the wrongly added total described in 3.4.
+   - *Supported conclusions.* A figure check cannot tell that "A led" is wrong when both figures are right. A second model is given the answer and the query results of the turn, and lists every conclusion (a ranking, a peak, a trend, a cause) that the results do not support. This is the check that would have caught the wrong sentences in the example run.
    - *Safety set.* Questions that must be refused or must return nothing outside the user's scope.
    - *Robustness.* Injected failures: a bad first query, an empty result, an unavailable model.
 
@@ -734,13 +735,13 @@ What is sent to the model: the instructions, the conversation text, and query re
 | Availability and capacity | Targets, to be agreed with the client: 99.5% of questions answered or declined cleanly, and 30 seconds at the 95th percentile for ordinary questions. A few hundred users means tens of conversations at once at most. Cloud Run scales on concurrency, with one instance kept warm in office hours. The real ceiling is model quota, so capacity is bought for the peak |
 | Backup and recovery | Cloud SQL runs with a standby and point-in-time recovery, and a restore is rehearsed. The aim is to be back within an hour and to lose at most five minutes. The Golden bucket has object versioning, and the vector index can be rebuilt from it at any time. The sales data in BigQuery is not ours to back up |
 | Retention | Traces: 90 days in Cloud Logging and a year in BigQuery. Conversation state: 30 days after the last message. Saved reports: until their owner deletes them. The audit log: as long as the company's policy requires |
-| Cost | Model usage is the main variable cost: about 8,000 tokens per question in the recorded sessions, most of it input, which the price table of 3.5 turns into dollars. BigQuery is small next to it, at about 10 MB scanned per query. The fixed costs are one small Cloud SQL instance with its standby and one warm Cloud Run instance |
+| Cost | Model usage is the main variable cost: about 8,000 tokens per question in the recorded sessions, most of it input, which the price table of 3.5 turns into dollars. BigQuery is small next to it, at about 10 MB scanned per query at most. The fixed costs are one small Cloud SQL instance with its standby and one warm Cloud Run instance |
 
 ---
 
 ## 8. Extending it
 
-**A new capability** is a tool, and adding one is three small pieces in one file, `agent/tools.py`: a declaration (name, description, parameters) in `TOOL_SPECS`, a method on `Toolbox`, and a line in its table of handlers. The graph does not change; a test adds a tool this way and calls it. Two tools are wired into the graph itself because they need more than their arguments: `run_sql` works within the limits of the question, and `delete_reports` goes through the confirmation step. A second tool that needs confirmation would be the moment to turn that into a flag on the declaration (3.3); with one destructive action it was not needed.
+**A new capability** is a tool, and adding one is three small pieces in one file, `agent/tools.py`: a declaration (name, description, parameters) in `TOOL_SPECS`, a method on `Toolbox`, and a line in its table of handlers. The graph does not change: a test puts a handler into the table and the graph calls it. Two tools are wired into the graph itself because they need more than their arguments: `run_sql` works within the limits of the question, and `delete_reports` goes through the confirmation step. A second tool that needs confirmation would be the moment to turn that into a flag on the declaration (3.3); with one destructive action it was not needed.
 
 As an example, a chart tool would be:
 
@@ -767,6 +768,7 @@ def make_chart(self, kind: str, sql: str) -> dict: ...                          
 - The token is not verified, because there is no front end to issue one. `--user` picks a sample token payload.
 - Brand scope and the personal data rule are enforced by the application only. Production adds what BigQuery can enforce on the company's own data (3.2); on the public dataset used here nothing more is possible.
 - The model can still misstate a figure. Stating conventions and returning totals from SQL reduce it; the grounding check in 3.6 is what would catch the remainder, and it is not built.
+- The model can word a conclusion more strongly than its queries support, with every figure right: a ranking, a peak, a cause. The example run has such sentences, and they are named at the top of it. The instructions tell the model not to; the check for supported conclusions in 3.6 is what would catch it, and it is not built.
 - The input guard is rules only. Subtle cases rely on the model declining and on the gate.
 - A statement that is not a query (a `DESCRIBE`, a write) ends the attempts for that question at once. This is deliberate, and it costs an honest model its retries if it makes that slip.
 - An answer that is cut off because the model reached its output limit is shown as it is.

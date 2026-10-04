@@ -352,7 +352,7 @@ These decisions were made while building and running the agent. Several of them 
 
 **Why errors are cheap.** A parse error is caught by the SQL gate without touching BigQuery. A semantic error is caught by BigQuery's dry-run, which is free. Only valid queries are billed.
 
-**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 50 seconds for that reason. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is a deadline. Every model call is given the time that is left as its own timeout, the retry logic stops when that time is used up, and a query gets the remaining time as its job timeout. The first version only checked the clock between steps; a review pointed out that a step in which every call hung could then run for many minutes, and the deadline closed that. The time a user takes to answer a confirmation is not counted.
+**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 50 seconds, 27 of them waiting. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is a deadline. Every model call is given the time that is left as its own timeout, the retry logic stops when that time is used up, and a query gets the remaining time as its job timeout. The first version only checked the clock between steps; a review pointed out that a step in which every call hung could then run for many minutes, and the deadline closed that. The time a user takes to answer a confirmation is not counted.
 
 **Announcing the last step.** The first recording of "Why did our churn rate spike last month?" ran eight queries, one per step, reached the limit on model calls and showed the limit message. The cost was bounded, but the work was thrown away. Now, when one model call is left, every tool result carries an instruction to answer from what has been found and to say what could not be checked. Recorded again, the same question ends in an answer on its eighth call.
 
@@ -432,7 +432,7 @@ These decisions were made while building and running the agent. Several of them 
 
 **Why.** The client confirmed on 2026-10-04 that the bucket is theoretical, that it need not be implemented in the prototype, and that a local folder of sample trios is the right stand-in. They also said that the real bucket holds about 1,000 trios in JSON, which is the format the samples use, and asked how it scales with hundreds of users; that is answered in the design (section 3.1). Matching on words needs no service and no extra model calls, and the function it sits behind (`find_similar`) is what an embedding search would implement.
 
-**Kept honest by tests.** Every stored SQL statement is run through the SQL gate and the local database in the offline suite, and on the real dataset in the BigQuery test group, where it must also find rows. A trio that stops working fails the build.
+**Kept honest by tests.** Every stored SQL statement is run through the SQL gate and the local database in the offline suite, and on the real dataset in the BigQuery test group, where it must also find rows. A further test fails on a trio that names a brand or quotes an amount or a percentage. A trio that stops working fails the build.
 
 **Where.** `golden/retrieval.py`, `golden_bucket/`. Tests: `tests/test_golden.py`.
 
@@ -514,7 +514,7 @@ These are stated so nobody has to discover them.
 | Personal data | Column allow-list plus pattern scrubber. On the public dataset nothing in BigQuery can add to this | On the company's own data, access only to views without the personal data columns, so BigQuery refuses them too; and a managed inspection service in place of the patterns |
 | Input guard | Rules, then the model's own instruction to decline | A managed prompt-safety service in front |
 | Local engine | Some BigQuery functions do not translate, and a few behave differently (division by zero, weekday numbering) | Not relevant: production uses BigQuery. The BigQuery test group is the check that counts |
-| Figures in answers | The model can misstate a number, or draw a conclusion its queries do not support; conventions and SQL totals reduce it | A mechanical grounding check before an answer is shown |
+| Figures in answers | The model can misstate a number, or draw a conclusion its queries do not support; conventions and SQL totals reduce it | A mechanical check on the figures, and a second model's check on the conclusions, before an answer is shown |
 | Statements that are not queries | A `DESCRIBE` or a write ends the attempts for that question at once, also when it was an honest slip | The same; it is the intended direction of failure |
 | Queries per question | Not counted; bounded by the limits on model calls and time, and 1 GB each | Part of the cost cap in dollars |
 | Cut-off answers | An answer that reached the model's output limit is shown as it is | Detected and retried with a higher limit |

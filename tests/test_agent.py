@@ -92,7 +92,7 @@ def traces(session):
 
 
 def test_a_new_tool_needs_no_change_to_the_graph(chat):
-    """A declaration, a method and one line in the table of handlers: that is a new tool."""
+    """The graph calls whatever is in the table of handlers, so a new tool needs no change to it."""
     session = chat(says("", call("top_category", limit=1)), says("Jeans sell best."))
     session.toolbox.handlers["top_category"] = lambda args: {"category": "Jeans", "asked": args}
     assert session.ask("What sells best?").answer == "Jeans sell best."

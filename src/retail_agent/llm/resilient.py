@@ -50,7 +50,7 @@ class ResilientLLM:
         self._last_error: LLMError | None = None
         self.on_failure = on_failure  # called for every failed attempt, for tracing
         self.on_wait = on_wait  # called before a long wait, so the interface can say so
-        self.name = self._models[0].name  # the first choice; shown in the interface header
+        self.name = self._models[0].name  # the first choice; `name` is part of the model interface
 
     def generate(
         self,
