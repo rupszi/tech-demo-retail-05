@@ -1,7 +1,7 @@
 """Canonical schema of the four `thelook_ecommerce` tables the agent may use.
 
 This is the single source of truth for the mock database and for what the agent is told about the
-data. The BigQuery backend can fetch the live schema; a test compares the two in phase 9.
+data. The BigQuery backend can fetch the live schema, and the BigQuery test group compares the two.
 `user_geom` (GEOGRAPHY) is deliberately left out: it duplicates latitude/longitude, which are PII.
 """
 
@@ -14,7 +14,7 @@ DATASET = "bigquery-public-data.thelook_ecommerce"
 
 def split_dataset(dataset: str) -> tuple[str, str]:
     """'project.dataset' -> (project, dataset)."""
-    project, _, name = dataset.rpartition(".")
+    project, _, name = dataset.rpartition(".")  # split at the last dot
     if not project or not name:
         raise ValueError(f"Dataset must be 'project.dataset', got {dataset!r}")
     return project, name
@@ -32,6 +32,8 @@ def _c(name: str, type_: str, description: str = "") -> ColumnInfo:
     return ColumnInfo(name=name, type=type_, description=description)
 
 
+# Column order follows the live tables. The descriptions are written for the model: they are
+# what it is told about each column.
 TABLES: dict[str, list[ColumnInfo]] = {
     "users": [
         _c("id", "INT64", "Unique customer id"),

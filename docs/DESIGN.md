@@ -31,7 +31,7 @@ Three ideas shape the design.
 | 3 | High-stakes oversight | **Built and tested** | [3.3](#33-high-stakes-oversight) |
 | 4 | Continuous improvement | Design | [3.4](#34-continuous-improvement) |
 | 5 | Resilience and graceful error handling | **Built and tested** | [3.5](#35-resilience) |
-| 6 | Quality assurance | 640 offline tests and 79 against BigQuery; evaluation design | [3.6](#36-quality-assurance) |
+| 6 | Quality assurance | 662 offline tests and 79 against BigQuery; evaluation design | [3.6](#36-quality-assurance) |
 | 7 | Observability | **Built and tested** | [3.7](#37-observability) |
 | 8 | Agility (tone without redeployment) | Tone file read on every question; design for the rest | [3.8](#38-agility-changing-the-tone-without-a-deployment) |
 
@@ -231,6 +231,7 @@ flowchart LR
     tools -->|results| agent
     tools -->|a delete was requested| confirm["confirm_delete<br/>pauses for the user"]
     confirm --> E
+    confirm -->|other results still to answer| agent
 ```
 
 Four steps, defined in `src/retail_agent/agent/graph.py`:
@@ -238,7 +239,7 @@ Four steps, defined in `src/retail_agent/agent/graph.py`:
 - **guard**: the rule-based input check.
 - **agent**: one model call. It also enforces the limits per question on model calls, tokens and time.
 - **tools**: runs what the model asked for. A delete request is only prepared here.
-- **confirm_delete**: pauses until the user decides, then acts and reports the outcome itself.
+- **confirm_delete**: pauses until the user decides, then acts and reports the outcome itself. If the same step also asked for something else, such as a query, the model then answers that, and the outcome stays in front of its answer.
 
 ### What the model is given, and what it is not
 
@@ -350,7 +351,7 @@ The three layers in bold are the guarantees. The others reduce cost and noise, o
 | Instructions planted in data or in a saved report | The model is told results are data; and it still has no harmful tool |
 | A token with no brand scope, or with scopes of another kind | Sees nothing: access is denied unless a brand scope grants it |
 
-The test suite contains 73 hostile queries, all rejected, and 24 legitimate analytical queries, all accepted, for each of three user profiles.
+The test suite contains 75 hostile queries, all rejected, and 24 legitimate analytical queries, all accepted, for each of three user profiles.
 
 **Personal data.** The client confirmed the list: names, email, address, postal code and coordinates. These are seven columns of `users`. The real `users` table only ever appears inside a subquery that selects the remaining columns by name, so `SELECT *` and whole-row expressions cannot reach them. Customers are identified by ID, which the client confirmed is fine and which keeps "top customers" working. Age, gender, city, state and country may be shown for an individual customer; the client confirmed this too. Details are in [D-09](DECISIONS.md#d-09-personal-data-is-kept-out-by-a-column-allow-list-customers-are-shown-by-id).
 
@@ -413,6 +414,7 @@ What keeps it from breaking the experience:
 
 - **One question, once.** The user sees the exact titles and answers yes or no. Anything else cancels.
 - **A fast, exact outcome.** It arrives in under a second, with no model call.
+- **A delete asked for together with a question.** The query runs, the user is asked once, and the answer shows the outcome of the delete first, written by the application, followed by the model's answer to the rest. If the model fails at that point the outcome is still shown. A second delete request in the same question is refused without asking the user again.
 - **No confirmation when nothing matches.** The assistant simply says so.
 
 Both phrasings in the brief are covered: "mentioning X" is a case-insensitive text match on title and content, for any term, and "the reports we made in this conversation" uses the conversation id stored with each report.
@@ -485,7 +487,7 @@ After the retry limit, no further query runs for that question and the model is 
 **Bounded cost and time.**
 
 - Broken SQL is caught before it is billed.
-- A question may use at most 8 model calls, 60,000 tokens and 120 seconds. When one model call is left, the tool results say so and tell the model to answer from what it has, so a question that explores for too long ends in an answer. Past any of the limits, the assistant stops and asks the user to narrow the question. The time limit is checked between steps, so a step that is already running is allowed to finish; how long that can be is stated below.
+- A question may use at most 8 model calls, 60,000 tokens and 120 seconds. When one model call is left, the tool results say so and tell the model to answer from what it has, so a question that explores for too long ends in an answer. Past any of the limits, the assistant stops and asks the user to narrow the question. The time limit is a deadline, as described below.
 - At most 500 rows are fetched and 50 are shown to the model, with a note when rows were left out.
 - Blocked messages and confirmed deletes use no model calls.
 - Old result tables are not resent with every turn.
@@ -495,7 +497,7 @@ Observed over the three recorded sessions: about 8,800 tokens and 2.4 model call
 
 **How long an answer may take.** The client accepts the assumed response times and allows one to two minutes for long reports. Ordinary questions are answered in seconds. A long report is produced within the same request, with progress shown, and the time limit stops anything that runs longer. No background job is needed.
 
-**The time limit is not a hard deadline.** It is checked between steps, and a step that has started runs to its own limits. A query has a 60-second job timeout and is retried once if BigQuery is unavailable. A model step has a 90-second timeout per call, three attempts per model, three models, and one wait of up to a minute for a rate limit to clear. The failures seen in practice, rate limits and server errors, come back within seconds, and the slowest recorded answer took 46 seconds. But if every call to every model hung until its timeout, a single step could run for about fifteen minutes before the limit was checked again. The remedy is to hand each step the time that is left as its own deadline. That is a small change, and it is not in the prototype.
+**The time limit is a deadline.** Every model call is given the time the question has left as its own timeout, and the retry logic stops when that time is used up: no further attempt, no wait for a rate limit, no fallback to another model. A query gets the same remaining time as its job timeout, and no query is started after the deadline. So a question ends within a few seconds of its limit, whatever the provider does. The first version only checked the clock between steps, which left a gap: a step in which every call hung could have run for many minutes. The time a user takes to answer a confirmation is not counted. One thing is not covered: BigQuery's dry-run, a single short request that keeps the client's own timeout.
 
 **A cost cap per question (design).** The client wants the cap to be easy to configure and suggests $1 per question, as a design matter. The cap is one setting, in dollars.
 
@@ -523,8 +525,8 @@ This was exercised for real: on the free tier the two larger models allow 20 req
 
 **Before deployment.** Four kinds of checks, from cheapest to most expensive.
 
-1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 640 tests that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results.
-2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. These are also in the 640.
+1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 662 tests that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results.
+2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. These are also in the 662.
 3. **The same rules on the real dataset.** A further group of 79 tests runs against BigQuery on request, as the client suggested: the schema, every legitimate query after the gate has rewritten it (as free dry-runs), brand scope and personal data on real data, and every analyst example.
 4. **Evaluation with the real model.** A fixed set of questions run against the real model and a fixed copy of the data, scored automatically:
    - *Result accuracy.* For questions with a known answer (the golden trios supply them), the result of the assistant's query is compared with the result of the analyst's query. Comparing results, not SQL text, accepts any correct query.
@@ -572,7 +574,7 @@ These come from the traces. They are complemented by moderated sessions with a f
 
 Questions and answers are scrubbed for personal data before they are logged. Result rows are never logged, only their count.
 
-A model step is named after the first model in the configured list, because that is what was asked. The model that actually answered is recorded beside it, and is the first thing `/trace` shows in the detail column.
+A model step is named after the model that answered it, so a fallback to another model is visible at a glance. A step that no model answered is named `unanswered` and carries the error.
 
 **Agent-level metrics**, computed from the traces and shown by `/stats`:
 
@@ -672,7 +674,7 @@ Around the gate:
 | Model rate limit | Error with a wait time | Wait if short, otherwise rest it and use the next model | Usually nothing |
 | Every model unavailable | All resting or failed | Wait up to a minute for the soonest, else stop | How long to wait before trying again |
 | Work limit for one question | Call and token counters | The model is told when its last step has come; past the limit, stop | An answer from what was found; or a request to narrow or split the question |
-| Time limit for one question | Clock, checked between steps | Stop | The same request, naming the time limit |
+| Time limit for one question | A deadline given to every model call and query | The call in progress times out; nothing new starts | A request to narrow or split the question, naming the time limit |
 | Tool crashes | Exception caught in the tool step | Error result to the model | An explanation that it did not work |
 | Any other exception | Caught at the session boundary | Logged with cause; turn ends | A short apology; the conversation continues |
 | Personal data in output | Scrubber | Masked and counted | The masked text |
@@ -719,7 +721,6 @@ What is sent to the model: the instructions, the conversation text, and query re
 - Conversation state is in memory and ends with the process. Reports and traces persist.
 - Golden bucket retrieval is by shared words. It works for seven trios and would not for 1,000.
 - The cap in dollars is not computed. Limits are set in model calls, tokens, seconds and bytes.
-- The time limit is checked between steps, so one slow step can run past it (3.5).
 - The pause for confirmation is written for deleting reports. A general flag on tools is designed, not built (3.3 and 7).
 - No feedback on answers is collected (3.4).
 - On the free tier the larger models allow 20 requests a day. The assistant keeps working on the lite model, with somewhat weaker answers.

@@ -58,6 +58,8 @@ class ChatSession:
             llm.on_wait = lambda seconds: self.tracer.event(
                 "llm_wait", "rate_limit", seconds=round(seconds)
             )
+        # The agent is given the gateway, never the backend: there is no path to the data that
+        # skips validation, scoping and scrubbing.
         gateway = QueryGateway(
             backend, profile, max_rows=settings.max_rows, dataset=settings.bq_dataset
         )
@@ -73,6 +75,8 @@ class ChatSession:
                 trios=load_trios(settings.golden_dir),
             )
         )
+        # The thread id is the key under which the checkpointer keeps this conversation's state.
+        # The recursion limit is a backstop only; the limits per question stop a turn long before.
         self._config = {"configurable": {"thread_id": self.conversation_id}, "recursion_limit": 60}
         self._trace_id = ""
         self.awaiting_confirmation = False
@@ -80,6 +84,7 @@ class ChatSession:
     def ask(self, question: str) -> TurnResult:
         if self.awaiting_confirmation:  # an unanswered confirmation counts as "no"
             self.confirm(False)
+        # The question is scrubbed before it is logged; the graph still gets it as typed.
         self._trace_id = self.tracer.start_turn(scrub_text(question)[0])
         return self._run({"question": question})
 
@@ -88,6 +93,7 @@ class ChatSession:
         if not self.awaiting_confirmation:
             raise RuntimeError("There is nothing to confirm.")
         self.tracer.resume()
+        # Resuming re-enters the graph at the paused step, with the decision as its input.
         return self._run(Command(resume={"approved": approved}))
 
     def _run(self, graph_input: Any) -> TurnResult:
@@ -100,6 +106,8 @@ class ChatSession:
             return TurnResult(self._trace_id, MSG_INTERNAL_ERROR, "failed", trace=trace)
         interrupts = state.get("__interrupt__")
         if interrupts:
+            # The graph stopped to ask the user. The turn is not over: the trace stays open and
+            # its clock is paused until `confirm` is called.
             self.awaiting_confirmation = True
             self.tracer.pause()
             return TurnResult(self._trace_id, confirmation=interrupts[0].value)

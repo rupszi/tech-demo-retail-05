@@ -45,6 +45,6 @@ class DataBackend(Protocol):
         """Validate the query without paying for it. Raises DataError on invalid SQL."""
         ...
 
-    def execute(self, sql: str) -> pd.DataFrame:
-        """Run a read-only query. Raises DataError."""
+    def execute(self, sql: str, timeout_s: float | None = None) -> pd.DataFrame:
+        """Run a read-only query, for at most `timeout_s` seconds if given. Raises DataError."""
         ...

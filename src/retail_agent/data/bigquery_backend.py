@@ -22,6 +22,7 @@ from retail_agent.data.schema import DATASET, TABLES, ColumnInfo
 
 log = logging.getLogger(__name__)
 
+# Failures that say nothing about the SQL: trying the same query again later may work.
 _UNAVAILABLE = (
     gexc.ServiceUnavailable,
     gexc.InternalServerError,
@@ -57,12 +58,15 @@ class BigQueryBackend:
         if table not in TABLES:
             raise DataError("syntax", f"Unknown table: {table}")
         try:
+            # The live schema, used by the BigQuery tests to check the schema kept in code.
             live = self.client.get_table(f"{self.dataset}.{table}")
         except _UNAVAILABLE as e:
             raise DataError("unavailable", str(e)) from e
         return [ColumnInfo(f.name, f.field_type, f.description or "", f.mode) for f in live.schema]
 
     def _config(self, dry_run: bool) -> bigquery.QueryJobConfig:
+        # No default dataset is set, on purpose (see the module docstring). The byte cap is
+        # enforced by BigQuery itself, so it holds even if our own estimate check were skipped.
         return bigquery.QueryJobConfig(
             maximum_bytes_billed=self.max_bytes_billed,
             dry_run=dry_run,
@@ -70,6 +74,7 @@ class BigQueryBackend:
         )
 
     def _classify(self, e: Exception) -> DataError:
+        """Map a client error to the kind the retry logic acts on."""
         if isinstance(e, _UNAVAILABLE):
             return DataError("unavailable", str(e))
         text = str(e)
@@ -80,10 +85,13 @@ class BigQueryBackend:
         return DataError("execution", text)
 
     def dry_run(self, sql: str) -> DryRunResult:
+        """Free: BigQuery checks the query and says how much it would scan, without running it."""
         try:
             job = self.client.query(sql, job_config=self._config(dry_run=True))
         except Exception as e:  # noqa: BLE001 - every client error is classified
             raise self._classify(e) from e
+        # Refuse an oversized query here, with a message the model can act on, and not only
+        # through BigQuery's own cap at run time.
         if (
             job.total_bytes_processed is not None
             and job.total_bytes_processed > self.max_bytes_billed
@@ -95,10 +103,12 @@ class BigQueryBackend:
             )
         return DryRunResult(bytes_processed=job.total_bytes_processed)
 
-    def execute(self, sql: str) -> pd.DataFrame:
+    def execute(self, sql: str, timeout_s: float | None = None) -> pd.DataFrame:
+        # Never longer than the backend's own timeout; shorter when the question has less left.
+        timeout = self.timeout_s if timeout_s is None else max(1.0, min(self.timeout_s, timeout_s))
         try:
             job = self.client.query(sql, job_config=self._config(dry_run=False))
-            return job.result(timeout=self.timeout_s).to_dataframe(create_bqstorage_client=False)
+            return job.result(timeout=timeout).to_dataframe(create_bqstorage_client=False)
         except Exception as e:  # noqa: BLE001 - every client error is classified
             log.warning("BigQuery execution failed: %s", e)
             raise self._classify(e) from e

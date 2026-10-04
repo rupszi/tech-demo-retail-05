@@ -36,16 +36,20 @@ class QueryGateway:
         self.max_rows = max_rows
         self.dataset = dataset
 
-    def run(self, sql: str) -> QueryResult:
+    def run(self, sql: str, timeout_s: float | None = None) -> QueryResult:
         """Raises SqlRejected (rule broken) or DataError (backend failure)."""
+        # 1. Parse, check and rewrite. From here on only `query.sql` is used, never `sql`.
         query = validate_query(sql, self.profile, max_rows=self.max_rows, dataset=self.dataset)
-        estimate = self._backend.dry_run(query.sql)  # free: catches errors and oversized scans
-        frame, redactions = scrub_frame(self._backend.execute(query.sql))
+        # 2. Dry-run. Free: catches errors and oversized scans before anything is billed.
+        estimate = self._backend.dry_run(query.sql)
+        # 3. Execute, then mask anything that looks like personal data in the result.
+        frame, redactions = scrub_frame(self._backend.execute(query.sql, timeout_s=timeout_s))
         return QueryResult(
             sql=query.sql,
             frame=frame,
             tables=query.tables,
             bytes_processed=estimate.bytes_processed,
             redactions=redactions,
+            # Reaching the limit means there may be more rows; the model is told to aggregate.
             truncated=len(frame) >= query.limit,
         )

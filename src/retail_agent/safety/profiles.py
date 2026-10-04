@@ -1,8 +1,9 @@
 """Who is asking, and which brands they may analyse.
 
-In production the web front end signs the user in and sends a signed JWT with every request. The
-API verifies the token and passes its claims to `UserProfile.from_claims`. Nothing else decides
-what a user may see: not the request body, and not the model.
+In production the company's identity provider signs the user in and issues a signed JWT, which
+the web front end sends with every request. The API verifies the token and passes its claims to
+`UserProfile.from_claims`. Nothing else decides what a user may see: not the request body, and
+not the model.
 
 The prototype has no front end, so `config/users.<backend>.json` holds sample token payloads and
 the CLI picks one with `--user`. There is one file per data backend because the mock data and the
@@ -16,8 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-BRAND_SCOPE = "brand:"
-ALL_BRANDS = "*"
+BRAND_SCOPE = "brand:"  # a scope looks like "brand:Levi's"
+ALL_BRANDS = "*"  # "brand:*" is the explicit grant to see every brand
 
 
 @dataclass(frozen=True)
@@ -41,11 +42,13 @@ class UserProfile:
         scopes = claims.get("scopes", [])
         if not isinstance(scopes, list) or not all(isinstance(s, str) for s in scopes):
             raise ValueError("The token's scopes must be a list of strings.")
+        # Only brand scopes count here; whatever else the token carries is ignored.
         granted = [s[len(BRAND_SCOPE) :].strip() for s in scopes if s.startswith(BRAND_SCOPE)]
         name = claims.get("name")
         return cls(
             user_id=subject,
             name=name if isinstance(name, str) and name else subject,
+            # dict.fromkeys removes duplicates and keeps the order of the token.
             brands=tuple(dict.fromkeys(b for b in granted if b and b != ALL_BRANDS)),
             all_brands=ALL_BRANDS in granted,
         )

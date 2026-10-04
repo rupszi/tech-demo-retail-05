@@ -154,12 +154,13 @@ flowchart LR
     tools -->|results| agent
     tools -->|a delete was requested| confirm["confirm_delete<br/>pauses for the user"]
     confirm --> E
+    confirm -->|other results still to answer| agent
 ```
 
 - **guard** checks the message with rules before any model call.
 - **agent** makes one Gemini call: it answers, or asks to run tools.
 - **tools** runs them. SQL goes through a gateway that validates it, limits it to the user's brands, removes personal data columns, dry-runs it and only then executes it.
-- **confirm_delete** pauses until the user answers, deletes exactly what was shown, and reports the outcome.
+- **confirm_delete** pauses until the user answers, deletes exactly what was shown, and reports the outcome itself. If the same request also asked a question, the model answers it afterwards.
 
 The model writes SQL and prose. Everything that matters for safety is decided by code the model cannot influence. The full explanation, the production architecture and the reasoning are in [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -192,7 +193,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-640 tests run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network.
+662 tests run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network.
 
 A second group of 79 tests checks the same rules against the real BigQuery dataset. It needs the Google Cloud setup above and takes about a minute:
 
@@ -216,7 +217,7 @@ src/retail_agent/
   cli/             the chat interface
 config/            sample token payloads for the demo users, and the tone file
 golden_bucket/     sample analyst examples (question, SQL, report)
-tests/             640 offline tests, and 79 against BigQuery
+tests/             662 offline tests, and 79 against BigQuery
 docs/              design, decisions, example run, plan, tracker, client questions
 ```
 

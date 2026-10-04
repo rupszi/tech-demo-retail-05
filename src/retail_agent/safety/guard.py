@@ -12,17 +12,23 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-MAX_INPUT_CHARS = 4000
+MAX_INPUT_CHARS = 4000  # a question is a few lines; far more is not a question
 
+# Invisible characters that can be put inside a word to slip it past a pattern.
 _ZERO_WIDTH = dict.fromkeys(map(ord, "​‌‍⁠﻿"))
+# A request for personal data names a kind of personal detail and the people it belongs to.
+# "Customers acquired via Email" has one without the other, and is a normal question.
 _PEOPLE = r"(?:customers?|users?|buyers?|shoppers?|clients?|people)"
 _PII = (
     r"(?:names?|e-?mails?(?: addresse?s?)?|phone(?: number)?s?|addresse?s?"
     r"|contact (?:details|info\w*)|postal codes?|zip codes?|coordinates)"
 )
 
+# Checked in this order; the first rule that matches decides the reply. The patterns run on
+# normalised, lower-case text.
 _RULES: list[tuple[str, re.Pattern[str]]] = [
     (
+        # Attempts to change the rules, read the instructions or take on another role.
         "prompt_injection",
         re.compile(
             r"\b(?:ignore|disregard|forget|override)\b.{0,40}\b(?:instructions?|rules?|prompts?"
@@ -39,6 +45,7 @@ _RULES: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        # Questions about credentials or configuration, which no analysis needs.
         "secrets_probe",
         re.compile(
             r"\b(?:api[ _-]?keys?|passwords?|credentials|access tokens?|service account"
@@ -46,6 +53,7 @@ _RULES: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        # Personal details of people, in either word order, or a bulk export of contact details.
         "pii_request",
         re.compile(
             rf"\b{_PII}\s+(?:of|for)\s+(?:(?:the|our|all|top|these|those|each|every|\d+)\s+)*"
@@ -57,6 +65,7 @@ _RULES: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        # Only the plainly unrelated. Anything subtler is left to the model, which declines it.
         "off_topic",
         re.compile(
             # "the story behind the drop" is a business question; "a story" is not
@@ -96,6 +105,7 @@ def _normalise(text: str) -> str:
 
 
 def check_input(text: str) -> GuardResult:
+    # The length is checked first, so an enormous message is never run through the patterns.
     if len(text) > MAX_INPUT_CHARS:
         return GuardResult(False, "too_long", _MESSAGES["too_long"])
     normalised = _normalise(text)

@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+# AUTOINCREMENT means an id is never used twice, so an id in the audit log can never come to
+# mean a different report after the original was deleted.
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,11 +54,13 @@ class ReportStore:
     def __init__(self, path: str | Path):
         if str(path) != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
+        # The graph may run a step on another thread than the one that opened the store.
         self._db = sqlite3.connect(str(path), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(_SCHEMA)
 
     def _reports(self, where: str, params: list) -> list[Report]:
+        # `where` is built in this file from fixed text; every value goes in as a parameter.
         rows = self._db.execute(
             "SELECT id, owner, conversation_id, title, content, created_at FROM reports "
             f"WHERE {where} ORDER BY id",
@@ -65,6 +69,7 @@ class ReportStore:
         return [Report(**dict(row)) for row in rows]
 
     def log(self, owner: str, action: str, report_ids: list[int], detail: str = "") -> None:
+        """Append to the audit log and commit, together with any change made just before."""
         self._db.execute(
             "INSERT INTO audit_log (at, owner, action, report_ids, detail) VALUES (?, ?, ?, ?, ?)",
             (_now(), owner, action, json.dumps(report_ids), detail),
@@ -96,8 +101,9 @@ class ReportStore:
         report_ids: list[int] | None = None,
     ) -> list[Report]:
         """The owner's reports matching every filter given. No filter matches all of them."""
-        where, params = ["owner = ?"], [owner]
+        where, params = ["owner = ?"], [owner]  # the owner filter is always the first condition
         if mentioning:
+            # % and _ are wildcards in LIKE; escaped, the user's text is matched literally.
             term = mentioning.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             where.append("(title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')")
             params += [f"%{term}%", f"%{term}%"]
@@ -105,6 +111,7 @@ class ReportStore:
             where.append("conversation_id = ?")
             params.append(conversation_id)
         if report_ids is not None:
+            # An empty list becomes IN (NULL), which matches nothing.
             where.append(f"id IN ({', '.join('?' * len(report_ids)) or 'NULL'})")
             params += report_ids
         return self._reports(" AND ".join(where), params)
@@ -114,6 +121,7 @@ class ReportStore:
 
         Returns what was deleted. The delete and its audit entry are committed together.
         """
+        # Looked up through `find`, so ids that belong to someone else simply drop out.
         doomed = self.find(owner, report_ids=report_ids)
         if not doomed:
             return []

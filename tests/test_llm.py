@@ -1,9 +1,9 @@
 import pytest
 
 from retail_agent.llm import LLMError, LLMUnavailable, ResilientLLM
-from retail_agent.llm.gemini import _to_contents
+from retail_agent.llm.gemini import _timeout_ms, _to_contents
 
-from .fakes import ScriptedLLM, permanent, says, transient
+from .fakes import ScriptedLLM, SlowModel, permanent, says, transient
 
 
 class FakeTime:
@@ -110,6 +110,39 @@ def test_when_every_model_is_rate_limited_for_long_the_user_is_told_how_long():
     with pytest.raises(LLMUnavailable) as e:
         llm.generate("s", [], [])
     assert sleeps == [] and e.value.retry_after == 450.0
+
+
+def test_each_call_is_told_how_long_it_may_take():
+    model = ScriptedLLM(says("hi"), says("hi"))
+    llm, _ = resilient(model)
+    llm.generate("s", [], [], time_left=42)
+    llm.generate("s", [], [])
+    assert [r["time_left"] for r in model.requests] == [42, None]
+
+
+def test_no_retry_starts_once_the_time_is_used_up():
+    fake = FakeTime()
+    slow = SlowModel(fake, 50, transient(), says("too late"))  # every call takes 50 seconds
+    backup = ScriptedLLM(says("never asked"))
+    llm = ResilientLLM([slow, backup], sleep=fake.sleep, clock=fake.clock)
+    with pytest.raises(LLMUnavailable):
+        llm.generate("s", [], [], time_left=40)
+    assert slow.calls == 1 and backup.calls == 0 and fake.sleeps == []
+
+
+def test_a_rate_limit_longer_than_the_time_left_is_not_waited_for():
+    models = [ScriptedLLM(rate_limited(30)), ScriptedLLM(rate_limited(30))]
+    llm, sleeps = resilient(*models)
+    with pytest.raises(LLMUnavailable) as e:
+        llm.generate("s", [], [], time_left=10)
+    assert sleeps == [] and e.value.retry_after == 30
+
+
+def test_a_gemini_call_never_waits_longer_than_the_question_has_left():
+    assert _timeout_ms(None) == 90_000  # no deadline: the default
+    assert _timeout_ms(12.5) == 12_500
+    assert _timeout_ms(500) == 90_000  # never longer than the default
+    assert _timeout_ms(0.2) == 1_000  # and never so short that nothing can answer
 
 
 def test_retry_delay_is_read_from_a_gemini_rate_limit_error():

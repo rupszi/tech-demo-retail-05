@@ -2,9 +2,19 @@
 
 import pytest
 
+from retail_agent.agent.graph import MSG_UNAVAILABLE
+from retail_agent.llm import LLMUnavailable
+
 from .fakes import call, says
 
 DELETE_DRIFTLINE = says("", call("delete_reports", mentioning="Driftline"))
+# The model asks for a query and a delete in one step.
+QUERY_AND_DELETE = says(
+    "",
+    call("run_sql", "c1", sql="SELECT COUNT(*) AS n FROM orders"),
+    call("delete_reports", "c2", mentioning="Driftline"),
+)
+BOTH = "How many orders do we have? And delete the reports mentioning Driftline."
 
 
 @pytest.fixture
@@ -157,6 +167,54 @@ def test_a_later_question_sees_a_clean_history_after_a_delete(session):
     context = s.model.requests[-1]["messages"]
     assert [m["role"] for m in context] == ["user", "assistant", "user"]
     assert "Deleted 2 report(s)" in context[1]["text"]
+
+
+def test_a_query_requested_with_a_delete_still_gets_its_answer(session):
+    s = session(QUERY_AND_DELETE, says("You have many orders."))
+    s.ask(BOTH)
+    assert s.awaiting_confirmation and len(titles(s)) == 3  # paused; nothing deleted yet
+    result = s.confirm(True)
+    assert result.outcome == "answered" and titles(s) == ["Texas deep dive"]
+    # The application's outcome comes first; the model's answer to the rest follows it.
+    assert result.answer.startswith("Deleted 2 report(s):") and "cannot be undone" in result.answer
+    assert result.answer.endswith("You have many orders.")
+    shown = [m["name"] for m in s.model.requests[-1]["messages"] if m["role"] == "tool"]
+    assert shown == ["run_sql", "delete_reports"]  # the model saw both results
+
+
+def test_a_declined_delete_does_not_stop_the_rest_of_the_answer(session):
+    s = session(QUERY_AND_DELETE, says("You have many orders."))
+    s.ask(BOTH)
+    result = s.confirm(False)
+    assert result.answer == "Nothing was deleted.\n\nYou have many orders."
+    assert len(titles(s)) == 3
+
+
+def test_the_outcome_of_a_delete_is_shown_even_if_the_model_fails_afterwards(session):
+    s = session(QUERY_AND_DELETE, LLMUnavailable("all models failed"))
+    s.ask(BOTH)
+    result = s.confirm(True)
+    assert result.answer.startswith("Deleted 2 report(s):") and MSG_UNAVAILABLE in result.answer
+    assert titles(s) == ["Texas deep dive"]
+
+
+def test_only_one_delete_is_put_to_the_user_per_question(session):
+    again = says("", call("delete_reports", "c3", all_reports=True))
+    s = session(QUERY_AND_DELETE, again, says("Understood."))
+    s.ask(BOTH)
+    result = s.confirm(False)
+    assert result.confirmation is None and not s.awaiting_confirmation  # no second prompt
+    assert result.answer == "Nothing was deleted.\n\nUnderstood." and len(titles(s)) == 3
+    refused = [m["result"] for m in s.model.requests[-1]["messages"] if m["role"] == "tool"][-1]
+    assert "Only one delete request" in refused["error"]
+
+
+def test_waiting_for_the_user_does_not_count_towards_the_time_limit(session, clock):
+    s = session(QUERY_AND_DELETE, says("You have many orders."))
+    s.ask(BOTH)
+    clock.now += 600  # the user takes ten minutes to decide
+    result = s.confirm(True)
+    assert result.outcome == "answered" and result.answer.endswith("You have many orders.")
 
 
 def test_the_decision_is_traced(session):

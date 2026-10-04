@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 def create_backend(settings: Settings) -> DataBackend:
     """Pick the backend from settings. DuckDB builds the mock database on first use."""
+    # Each backend is imported only when chosen, so running offline does not need the BigQuery
+    # client to be configured, and the other way round.
     if settings.data_backend == "bigquery":
         from retail_agent.data.bigquery_backend import BigQueryBackend
 

@@ -11,8 +11,8 @@ from google.genai import errors, types
 from retail_agent.config import Settings
 from retail_agent.llm.base import LLMError, LLMResponse, Message, ToolCall, ToolSpec
 
-_TRANSIENT_CODES = {408, 429, 500, 502, 503, 504}
-_TIMEOUT_MS = 90_000
+_TRANSIENT_CODES = {408, 429, 500, 502, 503, 504}  # worth trying again; anything else is not
+_TIMEOUT_MS = 90_000  # the longest one call may take when the question sets no tighter limit
 
 
 def create_client(settings: Settings) -> genai.Client:
@@ -36,7 +36,11 @@ class GeminiLLM:
         self._temperature = temperature
 
     def generate(
-        self, system: str, messages: Sequence[Message], tools: Sequence[ToolSpec]
+        self,
+        system: str,
+        messages: Sequence[Message],
+        tools: Sequence[ToolSpec],
+        time_left: float | None = None,
     ) -> LLMResponse:
         declarations = [
             types.FunctionDeclaration(
@@ -50,6 +54,8 @@ class GeminiLLM:
             tools=[types.Tool(function_declarations=declarations)] if declarations else None,
             # We run the tools ourselves, inside the graph, so every call is checked and traced.
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            # Never wait for a response longer than the question has left.
+            http_options=types.HttpOptions(timeout=_timeout_ms(time_left)),
         )
         try:
             response = self._client.models.generate_content(
@@ -68,6 +74,7 @@ class GeminiLLM:
     def _parse(self, response: types.GenerateContentResponse) -> LLMResponse:
         candidate = response.candidates[0] if response.candidates else None
         parts = (candidate.content.parts if candidate and candidate.content else None) or []
+        # The model's thinking is not part of the answer.
         text = "".join(p.text for p in parts if p.text and not p.thought)
         calls = tuple(
             ToolCall(
@@ -79,12 +86,15 @@ class GeminiLLM:
             if p.function_call
         )
         if not text and not calls:
+            # Nothing usable came back (for example a blocked or cut-off response): try again.
             reason = candidate.finish_reason if candidate else "no candidate"
             raise LLMError(f"{self.name}: empty response ({reason})", transient=True)
         usage = response.usage_metadata
         return LLMResponse(
             text=text,
             tool_calls=calls,
+            # Kept as the provider sent it and sent back unchanged on the next call: Gemini
+            # attaches signatures to tool calls and rejects a history that has lost them.
             raw=candidate.content.model_dump_json(exclude_none=True),
             model=response.model_version or self.name,
             input_tokens=(usage.prompt_token_count or 0) if usage else 0,
@@ -94,6 +104,13 @@ class GeminiLLM:
                 else 0
             ),
         )
+
+
+def _timeout_ms(time_left: float | None) -> int:
+    """The request timeout: the default, or what the question has left if that is less."""
+    if time_left is None:
+        return _TIMEOUT_MS
+    return int(min(_TIMEOUT_MS, max(1.0, time_left) * 1000))
 
 
 def _retry_after(error: errors.APIError) -> float | None:
@@ -110,6 +127,7 @@ def _retry_after(error: errors.APIError) -> float | None:
 
 
 def _to_contents(messages: Sequence[Message]) -> list[types.Content]:
+    """Turn the provider-independent messages into the form Gemini expects."""
     contents: list[types.Content] = []
     for message in messages:
         role = message["role"]

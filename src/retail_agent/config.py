@@ -33,11 +33,11 @@ class Settings:
     duckdb_path: str = "data/mock.duckdb"
     gcp_project_id: str | None = None
     bq_dataset: str = DATASET
-    bq_max_bytes_billed: int = 1_000_000_000
+    bq_max_bytes_billed: int = 1_000_000_000  # 1 GB per query; BigQuery refuses anything larger
     # limits per question
-    max_sql_retries: int = 2
-    max_rows: int = 500
-    rows_to_model: int = 50
+    max_sql_retries: int = 2  # corrections allowed after a failed query
+    max_rows: int = 500  # rows fetched per query at most
+    rows_to_model: int = 50  # of those, how many the model is shown
     max_llm_calls: int = 8
     turn_token_budget: int = 60_000
     turn_time_budget_s: int = 120  # long reports may take one to two minutes, not more
@@ -55,9 +55,9 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> Settings:
-        load_dotenv(".env")
+        load_dotenv(".env")  # values already set in the environment win over the file
         env = os.environ.get
-        default = cls()
+        default = cls()  # one place for the defaults: the field definitions above
         return cls(
             gemini_auth=env("GEMINI_AUTH", default.gemini_auth),
             gemini_api_key=env("GEMINI_API_KEY") or None,

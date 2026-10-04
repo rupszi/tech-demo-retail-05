@@ -64,6 +64,7 @@ class FakeJob:
         self._error, self._df = error, df
 
     def result(self, timeout=None):
+        self.timeout = timeout
         if self._error:
             raise self._error
         return SimpleNamespace(to_dataframe=lambda **kw: self._df)
@@ -105,6 +106,15 @@ def test_bq_execute_sets_byte_cap_and_returns_frame():
     client = FakeClient(FakeJob(df=pd.DataFrame({"a": [1]})))
     assert bq(client).execute("SELECT 1")["a"].tolist() == [1]
     assert client.configs[0].maximum_bytes_billed == 10_000 and client.configs[0].dry_run is False
+
+
+@pytest.mark.parametrize(("given", "used"), [(None, 60.0), (7.5, 7.5), (500, 60.0), (0, 1.0)])
+def test_bq_query_timeout_follows_the_time_that_is_left(given, used):
+    import pandas as pd
+
+    job = FakeJob(df=pd.DataFrame({"a": [1]}))
+    bq(FakeClient(job)).execute("SELECT 1", timeout_s=given)
+    assert job.timeout == used
 
 
 @pytest.mark.parametrize(

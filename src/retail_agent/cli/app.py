@@ -33,6 +33,7 @@ Ask a question about sales, customers or products, or ask for a report.
   /help          show this help
   /quit          leave
 """
+# What the spinner says while each kind of step runs.
 _PROGRESS = {
     "guard": "Checking the request…",
     "llm": "Thinking…",
@@ -55,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     console = Console()
 
     settings = Settings.from_env()
-    if args.backend:
+    if args.backend:  # the command line wins over DATA_BACKEND
         settings = replace(settings, data_backend=args.backend)
     try:
         profiles = load_profiles(settings.profiles_path)
@@ -70,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
     if user not in profiles:
         console.print(f"[red]Unknown user {user!r}.[/] Known users: {', '.join(profiles)}")
         return 1
+    # This stands in for a verified token: the profile fixes who the user is and what they may
+    # see for the whole session, and nothing typed into the chat can change it.
     profile = profiles[user]
     try:
         client = create_client(settings)
@@ -80,8 +83,9 @@ def main(argv: list[str] | None = None) -> int:
         console.print(f"[dim]{_startup_hint(settings, e)}[/]")
         return 1
 
+    # One adapter per configured model, tried in order, behind the retry and fallback logic.
     llm = ResilientLLM([GeminiLLM(client, model) for model in settings.gemini_models])
-    status = {"current": None}
+    status = {"current": None}  # the spinner on screen, if any, so steps can update its text
 
     def show_progress(step: str) -> None:
         label = _PROGRESS.get(step.split(":")[0])
@@ -122,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         if text in ("/quit", "/exit"):
             return 0
-        if text.startswith("/"):
+        if text.startswith("/"):  # commands are handled here and never reach the model
             _command(text, session, settings, console)
             continue
 
@@ -154,6 +158,7 @@ def _confirm_delete(request: dict, console: Console) -> bool:
         table.add_row(str(report["id"]), report["title"])
     console.print(table)
     try:
+        # The default is no: pressing Enter, closing the input or Ctrl-C all leave the reports.
         return Confirm.ask(
             "Delete these reports permanently? This cannot be undone",
             default=False,
@@ -220,9 +225,9 @@ def _step_detail(step: dict) -> str:
     if step["kind"] == "sql_retry" or step["kind"] == "llm_retry":
         return f"attempt {step.get('attempt', 1)} failed: {step.get('error', '')[:70]}"
     if step["kind"] == "llm" and "error" not in step:
+        # The step's name is the model that answered, so only tokens and tool calls go here.
         calls = ", ".join(step.get("tool_calls", [])) or "final answer"
-        tokens = f"{step.get('tokens_in')}+{step.get('tokens_out')} tokens"
-        return f"{step.get('model')} · {tokens} · {calls}"
+        return f"{step.get('tokens_in')}+{step.get('tokens_out')} tokens · {calls}"
     detail = {k: v for k, v in step.items() if k not in ("kind", "name", "ms")}
     return str(detail)[:160] if detail else ""
 

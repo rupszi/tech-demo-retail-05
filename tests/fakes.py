@@ -22,8 +22,15 @@ class ScriptedLLM:
         self._script = list(script)
         self.requests: list[dict] = []
 
-    def generate(self, system, messages, tools):
-        self.requests.append({"system": system, "messages": list(messages), "tools": list(tools)})
+    def generate(self, system, messages, tools, time_left=None):
+        self.requests.append(
+            {
+                "system": system,
+                "messages": list(messages),
+                "tools": list(tools),
+                "time_left": time_left,
+            }
+        )
         if not self._script:
             raise AssertionError("ScriptedLLM ran out of responses")
         step = self._script.pop(0)
@@ -34,6 +41,18 @@ class ScriptedLLM:
     @property
     def calls(self) -> int:
         return len(self.requests)
+
+
+class SlowModel(ScriptedLLM):
+    """A scripted model whose every call takes `seconds` on a fake clock (anything with `.now`)."""
+
+    def __init__(self, clock, seconds: float, *script: LLMResponse | Exception):
+        super().__init__(*script)
+        self._clock, self._seconds = clock, seconds
+
+    def generate(self, system, messages, tools, time_left=None):
+        self._clock.now += self._seconds
+        return super().generate(system, messages, tools, time_left)
 
 
 def transient(message: str = "503 unavailable") -> LLMError:

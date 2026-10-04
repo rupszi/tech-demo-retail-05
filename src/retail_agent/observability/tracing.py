@@ -33,10 +33,10 @@ class Tracer:
         self._session_id = session_id
         self._user_id = user_id
         self._on_step = on_step  # lets the interface show progress ("Running query...")
-        self._turn: dict[str, Any] | None = None
+        self._turn: dict[str, Any] | None = None  # the trace being built; None between questions
         self._started = 0.0
         self._paused_at: float | None = None
-        self.last: dict[str, Any] | None = None
+        self.last: dict[str, Any] | None = None  # the finished trace of the last question
 
     def start_turn(self, question: str) -> str:
         self._started = time.perf_counter()
@@ -56,6 +56,7 @@ class Tracer:
 
     def resume(self) -> None:
         if self._paused_at is not None:
+            # Moving the start forward by the length of the pause takes it out of the duration.
             self._started += time.perf_counter() - self._paused_at
             self._paused_at = None
 
@@ -72,11 +73,13 @@ class Tracer:
             record["error"] = f"{type(e).__name__}: {e}"
             raise
         finally:
+            # Recorded whether the step succeeded or raised, so a failure is in the trace too.
             record["ms"] = round((time.perf_counter() - started) * 1000)
             if self._turn is not None:
                 self._turn["steps"].append(record)
 
     def event(self, kind: str, name: str, **attrs: Any) -> None:
+        """Record something that happened at a point in time and has no duration."""
         if self._on_step:
             self._on_step(f"{kind}: {name}")
         if self._turn is not None:
@@ -89,6 +92,7 @@ class Tracer:
         steps = turn["steps"]
         llm = [s for s in steps if s["kind"] == "llm"]
         sql = [s for s in steps if s["kind"] == "sql"]
+        # Totals are stored with the trace, so most metrics are plain sums over traces.
         turn.update(
             outcome=outcome,
             answer=answer,  # already scrubbed; kept so a bad answer can be read next to its steps
@@ -103,6 +107,7 @@ class Tracer:
             empty_results=sum(1 for s in sql if s.get("rows") == 0),
             redactions=sum(sum(s.get("redactions", {}).values()) for s in steps),
         )
+        # One line per question, appended: the file is the log and the source of the metrics.
         with self._path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(turn, default=str) + "\n")
         self.last = turn
@@ -117,6 +122,7 @@ def read_traces(trace_dir: str | Path) -> list[dict[str, Any]]:
 
 
 def _percentile(values: list[float], q: float) -> float:
+    """Nearest-rank percentile: always one of the observed values."""
     ordered = sorted(values)
     return ordered[min(len(ordered) - 1, round(q * (len(ordered) - 1)))] if ordered else 0.0
 
@@ -134,6 +140,7 @@ def compute_stats(traces: list[dict[str, Any]]) -> dict[str, Any]:
         return [s for t in traces for s in t["steps"] if s["kind"] == kind]
 
     queries = sum(t["sql_queries"] for t in traces)
+    # Questions in which at least one query failed: the base for the recovery rate below.
     had_sql_error = [t for t in traces if t["sql_errors"]]
     durations = [t["duration_ms"] for t in traces]
     confirmations = steps("confirmation")

@@ -1,9 +1,9 @@
 """The agent loop, driven by a scripted model against the local database. No network."""
 
 from retail_agent.agent.graph import MSG_BUDGET, MSG_UNAVAILABLE
-from retail_agent.llm import LLMUnavailable, ResilientLLM
+from retail_agent.llm import LLMResponse, LLMUnavailable, ResilientLLM
 
-from .fakes import ScriptedLLM, call, says, transient
+from .fakes import ScriptedLLM, SlowModel, call, says, transient
 
 COUNT = "SELECT COUNT(*) AS n FROM orders"
 
@@ -183,19 +183,27 @@ def test_token_budget_is_enforced(chat):
     assert result.answer == MSG_BUDGET and budget_step(result)["name"] == "tokens"
 
 
-def test_a_question_that_runs_past_the_time_limit_is_stopped_between_steps(chat, monkeypatch):
-    from types import SimpleNamespace
-
-    from retail_agent.agent import graph
-
-    clock = iter([1000.0, 1001.0, 1200.0])  # question starts; first check; second check
-    monkeypatch.setattr(graph, "time", SimpleNamespace(time=lambda: next(clock)))
-    session = chat(says("", call("run_sql", sql=COUNT)), says("never reached"))
-    result = session.ask("Write a very long report")
+def test_a_question_that_runs_past_the_time_limit_is_stopped(chat, clock):
+    slow = SlowModel(clock, 200, says("", call("run_sql", sql=COUNT)), says("never reached"))
+    result = chat(llm=slow).ask("Write a very long report")
     assert "time limit (about 2 minutes)" in result.answer and result.outcome == "failed"
-    assert session.model.calls == 1  # the step in progress finished; no further step started
+    assert slow.calls == 1  # no further model call was started
+    assert sql_steps(result) == []  # and the query it asked for was not started either
     stop = budget_step(result)
     assert (stop["name"], stop["seconds"], stop["limit"]) == ("time", 200, 120)
+
+
+def test_each_model_call_is_given_the_time_the_question_has_left(chat, clock):
+    model = SlowModel(clock, 30, says("", call("run_sql", sql=COUNT)), says("Done."))
+    assert chat(llm=model).ask("Count orders").answer == "Done."
+    assert [r["time_left"] for r in model.requests] == [120, 90]
+
+
+def test_a_model_failure_that_uses_up_the_time_is_reported_as_the_time_limit(chat, clock):
+    stuck = SlowModel(clock, 200, LLMUnavailable("every call timed out"))
+    result = chat(llm=stuck).ask("Show revenue")
+    assert "time limit" in result.answer and result.answer != MSG_UNAVAILABLE
+    assert budget_step(result)["name"] == "time"
 
 
 def test_the_time_limit_is_a_setting(chat):
@@ -221,6 +229,17 @@ def test_rate_limit_tells_the_user_how_long_to_wait(chat):
     assert "try again in about 42 seconds" in session.ask("Show revenue").answer
     assert "try again in about 10 minutes" in session.ask("Show revenue").answer
     assert "try again in about 15 hours" in session.ask("Show revenue").answer
+
+
+def test_a_model_step_in_the_trace_is_named_after_the_model_that_answered(chat):
+    answered = chat(LLMResponse(text="ok", model="the-model-that-answered")).ask("Show revenue")
+    failed = chat(LLMUnavailable("all models failed")).ask("Show revenue")
+
+    def model_step(result):
+        return next(s for s in result.trace["steps"] if s["kind"] == "llm")
+
+    assert model_step(answered)["name"] == "the-model-that-answered"
+    assert model_step(failed)["name"] == "unanswered" and "error" in model_step(failed)
 
 
 def test_model_retries_are_visible_in_the_trace(chat):

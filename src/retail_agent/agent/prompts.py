@@ -83,6 +83,8 @@ def _schema_text() -> str:
     lines = []
     for table, columns in TABLES.items():
         lines.append(f"## {table}")
+        # The personal data columns are not listed, so the model does not reach for them. The
+        # gate would refuse them anyway.
         lines += [
             f"- {c.name} ({c.type}): {c.description}" for c in columns if c.name not in PII_COLUMNS
         ]
@@ -111,7 +113,9 @@ def _examples_text(examples: list[Trio]) -> str:
 def build_system_prompt(
     profile: UserProfile, persona: str, examples: list[Trio], today: date | None = None
 ) -> str:
-    today = today or date.today()
+    today = today or date.today()  # "last month" means nothing without it
+    # Fixed rules first; then the editable tone, the facts about this user, the tables, and the
+    # analyst examples chosen for this question.
     return (
         f"{_RULES}\n"
         f"# Tone and style\n{persona}\n\n"

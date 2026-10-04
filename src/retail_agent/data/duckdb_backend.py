@@ -16,6 +16,7 @@ from retail_agent.data.base import DataError, DryRunResult
 from retail_agent.data.mock import write_duckdb
 from retail_agent.data.schema import DATASET, TABLES, ColumnInfo, split_dataset
 
+# Errors the model can fix by rewriting the query: bad syntax, unknown column, unknown table.
 _SYNTAX_ERRORS = (duckdb.ParserException, duckdb.BinderException, duckdb.CatalogException)
 
 
@@ -30,6 +31,7 @@ class DuckDBBackend:
         project, _ = split_dataset(dataset)
         con = duckdb.connect()
         escaped = str(path).replace("'", "''")
+        # Attached under the BigQuery project name, and read-only like the real dataset.
         con.execute(f"ATTACH '{escaped}' AS \"{project}\" (READ_ONLY)")
         return cls(con)
 
@@ -51,6 +53,7 @@ class DuckDBBackend:
         return list(TABLES[table])
 
     def _to_duckdb(self, sql: str) -> str:
+        """The agent always writes BigQuery SQL; it is translated here for the local engine."""
         try:
             return sqlglot.transpile(sql, read="bigquery", write="duckdb")[0]
         except SqlglotError as e:
@@ -59,6 +62,7 @@ class DuckDBBackend:
     def dry_run(self, sql: str) -> DryRunResult:
         duck_sql = self._to_duckdb(sql)
         try:
+            # EXPLAIN plans the query without running it: the local stand-in for a dry-run.
             self._con.cursor().execute(f"EXPLAIN {duck_sql}")
         except _SYNTAX_ERRORS as e:
             raise DataError("syntax", str(e)) from e
@@ -66,7 +70,8 @@ class DuckDBBackend:
             raise DataError("execution", str(e)) from e
         return DryRunResult(bytes_processed=None)
 
-    def execute(self, sql: str) -> pd.DataFrame:
+    def execute(self, sql: str, timeout_s: float | None = None) -> pd.DataFrame:
+        # `timeout_s` is part of the interface; local queries take milliseconds, so it is unused.
         duck_sql = self._to_duckdb(sql)
         try:
             return self._con.cursor().execute(duck_sql).df()

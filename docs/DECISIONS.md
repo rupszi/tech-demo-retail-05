@@ -131,7 +131,7 @@ The brief has three safety requirements: only analysis questions, no personal da
 
 **Considered instead.** Checking the SQL text with regular expressions: easy to bypass with comments, casing, quoting or nesting. Relying only on database permissions: necessary in production (see "Known limits"), but the brief's public dataset cannot be given row-level policies, and permissions alone give the model no useful feedback.
 
-**Where.** `safety/validator.py`. Tests: `tests/test_sql_gate.py` with the corpora in `tests/sql_cases.py`: 73 hostile queries are all rejected and 24 legitimate analytical queries all pass, for each of the three user profiles.
+**Where.** `safety/validator.py`. Tests: `tests/test_sql_gate.py` with the corpora in `tests/sql_cases.py`: 75 hostile queries are all rejected and 24 legitimate analytical queries all pass, for each of the three user profiles.
 
 ### D-07. Only SQL regenerated from the syntax tree is executed
 
@@ -344,7 +344,7 @@ These decisions were made while building and running the agent. Several of them 
 
 **Why errors are cheap.** A parse error is caught by the SQL gate without touching BigQuery. A semantic error is caught by BigQuery's dry-run, which is free. Only valid queries are billed.
 
-**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 76 seconds for that reason. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is checked between steps; a step that is already running is allowed to finish. So it is not a hard deadline: how long a single step can run in the worst case is stated in [DESIGN 3.5](DESIGN.md#35-resilience), with the change that would close the gap.
+**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 76 seconds for that reason. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is a deadline. Every model call is given the time that is left as its own timeout, the retry logic stops when that time is used up, and a query gets the remaining time as its job timeout. The first version only checked the clock between steps; a review pointed out that a step in which every call hung could then run for many minutes, and the deadline closed that. The time a user takes to answer a confirmation is not counted.
 
 **Announcing the last step.** The first recording of "Why did our churn rate spike last month?" ran eight queries, one per step, reached the limit on model calls and showed the limit message. The cost was bounded, but the work was thrown away. Now, when one model call is left, every tool result carries an instruction to answer from what has been found and to say what could not be checked. Recorded again, the same question ends in an answer on its eighth call.
 
@@ -377,7 +377,7 @@ These decisions were made while building and running the agent. Several of them 
 2. stores their ids in the conversation state;
 3. pauses in a separate step and hands the list to the interface, which says that the deletion is permanent;
 4. on "yes", deletes exactly the stored ids for good; on anything else, deletes nothing;
-5. writes the outcome message itself and ends the turn.
+5. writes the outcome message itself. If nothing else was asked for, the turn ends there.
 
 **Why each part.**
 
@@ -385,7 +385,7 @@ These decisions were made while building and running the agent. Several of them 
 - *The model cannot confirm.* The decision arrives through `ChatSession.confirm`, which only the interface calls. There is no tool for it, and a "yes" typed into the chat is an ordinary message that cancels the pending request.
 - *Deleting is permanent.* The first version was a soft delete with an `/undo` command. The client then said that deleted reports do not need to be recoverable, so the restore function, the command and the extra columns were removed. This also makes the confirmation mean what it says: the brief calls the action destructive, and now it is. The confirmation and the outcome both state that it cannot be undone.
 - *The audit log outlives the reports.* The request, and the confirmation or the cancellation, are recorded with the report ids, and the titles of what was requested and of what was deleted are kept. Report ids are never reused, so an id in the log cannot come to mean a different report.
-- *Nothing follows a confirmation except its outcome.* If the model asks for a query and a delete in the same step, the query runs, but the turn ends with the outcome of the delete and the query's result is not used. The user asks again. This is rare, and the alternative, another model call after a confirmed action, is what the next point removes.
+- *A delete asked for together with something else.* If the model asks for a query and a delete in the same step, the query runs, the user is asked, and after the decision the model answers the rest. The outcome of the delete is kept by the application and put in front of that answer, so it is shown whatever the model says, and even if the model call fails. A second delete request in the same question is refused without asking the user again. The first version ended the turn at the confirmation and never used the query's result.
 - *The application reports the outcome.* The first version returned the result to the model and let it write the reply. In a recorded run the delete succeeded, the following model call hit a rate limit, and the user was told to "try again" with no word on whether anything had been deleted. The outcome of a confirmed action is now a fixed message from code. It is also faster and costs no model call.
 
 **Where.** `tools` and `confirm_delete` in `agent/graph.py`; `reports/store.py`. Tests: `tests/test_delete_flow.py`, `tests/test_reports.py`, and the prompt wording in `tests/test_cli.py`.
@@ -455,7 +455,6 @@ The brief limits the prototype to four requirements, and the client asked for th
 | Database permissions and views | They cannot restrict a public dataset, which every Google Cloud account can read | DESIGN 3.2 |
 | Collecting feedback on answers | Design-only requirement; the CLI has no place for it | DESIGN 3.4 |
 | A tool registry and a general "needs confirmation" flag | Five tools and one destructive action did not need them | DESIGN 3.3 and 7 |
-| A hard deadline inside a step | The time limit is checked between steps, which covers the failures seen in practice | DESIGN 3.5 |
 | Streaming answers, a web interface | The brief asks for a CLI | DESIGN 1 |
 | Charts, email, Slack, web search | Named as future extensions | DESIGN 7 |
 
@@ -493,7 +492,6 @@ These are stated so nobody has to discover them.
 | Conversation state | In memory; ends with the process (reports and traces persist) | Checkpoints in PostgreSQL |
 | Golden bucket retrieval | Shared words over seven files | An embedding index over about 1,000 trios |
 | Cost cap | Limits on model calls, tokens, time and bytes | One setting in dollars, $1 per question by default, translated into those limits |
-| Time limit | Checked between steps; one slow step can run past it | Each step is given the remaining time as its deadline |
 | Feedback | Not collected | Helpful or not helpful under each answer, stored with the trace id |
 | Model quality on the free tier | After 20 requests a day per larger model, the lite model answers | Paid capacity; the first model answers everything |
 

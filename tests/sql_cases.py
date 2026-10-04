@@ -114,6 +114,9 @@ REJECTED = [
     ("SELECT * FROM ML.PREDICT(MODEL `p.d.m`, (SELECT * FROM users))", "table_function"),
     ("SELECT * FROM VECTOR_SEARCH(TABLE users, 'c', (SELECT 1))", "table_function"),
     ("SELECT * FROM my_dataset.my_tvf(1)", "table_function"),
+    # FROM may only read tables, subqueries and UNNEST: these two are stopped by that rule alone
+    ("SELECT * FROM VALUES (1, 2)", "table_function"),
+    ("SELECT * FROM orders JOIN LATERAL (SELECT 1 AS x) ON TRUE", "table_function"),
     ("SELECT SESSION_USER()", "forbidden_function"),
     ("SELECT CURRENT_USER()", "forbidden_function"),
     ("SELECT AI.GENERATE('hi')", "forbidden_function"),

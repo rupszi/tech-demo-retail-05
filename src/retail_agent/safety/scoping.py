@@ -21,6 +21,7 @@ from retail_agent.safety.profiles import UserProfile
 
 
 def _qualified(table: str, dataset: str) -> exp.Table:
+    """`project.dataset.table`: the only form in which a real table is ever queried."""
     project, name = split_dataset(dataset)
     return exp.Table(
         this=exp.to_identifier(table),
@@ -35,16 +36,21 @@ def _product_filter(profile: UserProfile) -> exp.Expression | None:
         return None
     if not profile.brands:
         return exp.false()  # no brand scope means no access
+    # Brand names become string literals in the tree, so the generator escapes them (Levi's).
     return exp.column("brand").isin(*[exp.Literal.string(b) for b in profile.brands])
 
 
 def _columns(table: str) -> list[str]:
+    """The columns a scoped table exposes. For `users` the personal data columns are left out."""
     if table == "users":
         return list(SAFE_USER_COLUMNS)
     return [c.name for c in TABLES[table]]
 
 
 def _scoped_select(table: str, profile: UserProfile, dataset: str) -> exp.Select:
+    """What this user may see of `table`, as a SELECT over the real table."""
+    # Columns are listed by name, never `*`: this is what keeps personal data out of `users`
+    # whatever the outer query selects.
     select = sqlglot.select(*_columns(table)).from_(_qualified(table, dataset))
     product_filter = _product_filter(profile)
     if product_filter is None:
@@ -81,7 +87,9 @@ def scope_tables(tables: list[exp.Table], profile: UserProfile, dataset: str) ->
         table.replace(
             exp.Subquery(
                 this=_scoped_select(name, profile, dataset),
+                # Keep the name the query uses for the table, so its column references resolve.
                 alias=exp.TableAlias(this=exp.to_identifier(table.alias or name)),
+                # The parser hangs joins and pivots on the table node; they move with it.
                 joins=table.args.get("joins"),
                 pivots=table.args.get("pivots"),
             )

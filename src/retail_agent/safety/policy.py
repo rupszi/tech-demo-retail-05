@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from retail_agent.data.schema import TABLES
 
+# Exactly the four tables named in the brief. The dataset has more (events, inventory_items,
+# distribution_centers); the agent cannot reach them.
 ALLOWED_TABLES = frozenset(TABLES)
 
 # Direct identifiers and quasi-identifiers. These never leave the database layer.

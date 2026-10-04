@@ -43,6 +43,7 @@ class LLMResponse:
     output_tokens: int = 0  # includes the model's thinking tokens
 
     def to_message(self) -> Message:
+        """The form in which this response is stored in the conversation state."""
         calls = [{"id": c.id, "name": c.name, "args": c.args} for c in self.tool_calls]
         return {"role": "assistant", "text": self.text, "tool_calls": calls, "raw": self.raw}
 
@@ -61,7 +62,10 @@ class LLMError(Exception):
 
 
 class LLMUnavailable(LLMError):
-    """Every model and every retry failed. `retry_after` is set when rate limits are the cause."""
+    """Every model and every retry failed. `retry_after` is set when rate limits are the cause.
+
+    This is the one model error the agent handles: it becomes a plain message to the user.
+    """
 
     def __init__(self, message: str, retry_after: float | None = None):
         super().__init__(message, transient=True, retry_after=retry_after)
@@ -71,5 +75,9 @@ class LLM(Protocol):
     name: str
 
     def generate(
-        self, system: str, messages: Sequence[Message], tools: Sequence[ToolSpec]
+        self,
+        system: str,
+        messages: Sequence[Message],
+        tools: Sequence[ToolSpec],
+        time_left: float | None = None,  # seconds this call may take; None means no deadline
     ) -> LLMResponse: ...

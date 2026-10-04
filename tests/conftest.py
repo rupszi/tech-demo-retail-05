@@ -6,6 +6,30 @@ from retail_agent.data.duckdb_backend import DuckDBBackend
 from retail_agent.data.mock import generate
 
 
+class FakeClock:
+    """Stands in for the `time` module: it only moves when a test, or a sleep, moves it."""
+
+    def __init__(self, now=1000.0):
+        self.now = now
+
+    def time(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Put the agent's steps and tools on a clock the test controls."""
+    from retail_agent.agent import graph, tools
+
+    fake = FakeClock()
+    monkeypatch.setattr(graph, "time", fake)
+    monkeypatch.setattr(tools, "time", fake)
+    return fake
+
+
 @pytest.fixture(scope="session")
 def frames():
     return generate(seed=42)

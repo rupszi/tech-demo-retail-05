@@ -123,7 +123,7 @@ def generate(
     n_orders: int = 2500,
 ) -> dict[str, pd.DataFrame]:
     """Orders cover the `HISTORY_DAYS` up to `end_date`."""
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # one seeded generator: the same seed gives the same data
     start_date = end_date - timedelta(days=HISTORY_DAYS)
 
     # users
@@ -132,6 +132,8 @@ def generate(
     for uid in range(1, n_users + 1):
         state, city, country, _ = rng.choices(LOCATIONS, weights=loc_weights)[0]
         first, last = rng.choice(FIRST), rng.choice(LAST)
+        # Registered at some point from a year before the first order up to a month before the
+        # end, so every customer has had time to order.
         created = (
             start_date
             - timedelta(days=rng.randint(0, 365))
@@ -140,6 +142,7 @@ def generate(
         users.append(
             {
                 "id": uid,
+                # Realistic-looking personal data, so the tests can prove it never comes out.
                 "first_name": first,
                 "last_name": last,
                 "email": f"{first}.{last}.{uid}@example.com".lower(),
@@ -163,7 +166,7 @@ def generate(
     brand_names = list(BRANDS)
     cat_names = list(CATEGORIES)
     for pid in range(1, n_products + 1):
-        brand = brand_names[(pid - 1) % len(brand_names)]
+        brand = brand_names[(pid - 1) % len(brand_names)]  # every brand gets products
         category = rng.choice(cat_names)
         lo, hi = CATEGORIES[category]
         price = round(rng.uniform(lo, hi), 2)
@@ -196,15 +199,18 @@ def generate(
     for oid in range(1, n_orders + 1):
         uid = rng.choices(range(1, n_users + 1), weights=user_weights)[0]
         offset = rng.choices(range(days + 1), weights=day_weights)[0]
+        # An order never comes before its customer registered, and never after the end date.
         created = max(
             start_date + timedelta(days=offset, seconds=rng.randint(0, 86399)),
             user_created[uid] + timedelta(days=1),
         )
         if created > end_date:
             created = end_date - timedelta(seconds=rng.randint(0, 86399))
+        # Planted pattern 1: customers in Texas buy fewer items per order (and pay less, below).
         in_texas = user_state[uid] == "Texas"
         n_items = rng.choice([1, 1, 2]) if in_texas else rng.choice([1, 1, 2, 2, 3, 4])
         status = rng.choices(STATUSES, weights=STATUS_WEIGHTS)[0]
+        # The timestamps follow from the status: an order is delivered only after it shipped.
         shipped = delivered = returned = None
         if status in ("Shipped", "Complete", "Returned"):
             shipped = created + timedelta(days=rng.randint(1, 3))
@@ -229,6 +235,7 @@ def generate(
             p = rng.choice(product_rows)
             price = p["retail_price"] * (0.78 if in_texas else rng.uniform(0.9, 1.0))
             item_status, item_returned = status, returned
+            # Planted pattern 2: about a third of completed Driftline items come back.
             if p["brand"] == "Driftline" and status == "Complete" and rng.random() < 0.35:
                 item_status = "Returned"
                 item_returned = delivered + timedelta(days=rng.randint(1, 10))
@@ -280,7 +287,7 @@ def build_mock_db(
     end_date = end_date or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.unlink(missing_ok=True)
+    path.unlink(missing_ok=True)  # always rebuilt from scratch, never patched
     con = duckdb.connect(str(path))
     try:
         write_duckdb(generate(seed=seed, end_date=end_date), con, split_dataset(dataset)[1])

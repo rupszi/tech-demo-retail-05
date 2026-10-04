@@ -23,7 +23,7 @@ Assessment focus: system design, the technical explanation, and an elegant proto
 | 3 | High-stakes oversight (destructive ops) | **yes** | yes |
 | 4 | Continuous improvement (user and system loops) | no | yes |
 | 5 | Resilience and graceful error handling | **yes** | yes |
-| 6 | Quality assurance | 640 offline tests and 79 against BigQuery | yes |
+| 6 | Quality assurance | 662 offline tests and 79 against BigQuery | yes |
 | 7 | Observability | **yes** | yes |
 | 8 | Agility (persona management) | tone file read on every question | yes |
 
@@ -71,8 +71,8 @@ This section describes what is built today, including the revision in section 9.
 - **Data backends**: one `DataBackend` interface with a BigQuery implementation, which is the default, and a DuckDB implementation over mock data for offline tests and trials. Tables resolve only by fully qualified name on both.
 - **Identity**: a user's profile is built from token claims; the prototype reads sample token payloads. Brand is the only scope, the all-brands grant is explicit, and no brand scope means no access.
 - **Safety**: SQL parsed with `sqlglot`; a single query only, table and column allow-lists, a forced `LIMIT`, brand scoping applied to the parsed query, and an output scrubber as a second layer. The agent reaches data only through a `QueryGateway` that applies all of it.
-- **Delete flow**: find the user's own matching reports, store their ids in the conversation state, pause for the user's answer, permanently delete exactly those ids, report the outcome from code. An audit log keeps the ids and titles.
-- **Resilience**: bounded self-correction with errors classified by whether a retry can help; retries with backoff and jitter; a rate-limited model is rested and the next one answers; limits per question on model calls, tokens and time; nothing crashes the interface.
+- **Delete flow**: find the user's own matching reports, store their ids in the conversation state, pause for the user's answer, permanently delete exactly those ids, report the outcome from code. If the same step also asked a question, the model answers it afterwards, behind the outcome. An audit log keeps the ids and titles.
+- **Resilience**: bounded self-correction with errors classified by whether a retry can help; retries with backoff and jitter; a rate-limited model is rested and the next one answers; limits per question on model calls, tokens and time, where the time limit is a deadline handed to every model call and query; nothing crashes the interface.
 - **Observability**: one structured trace per question (JSONL), with the metrics computed from the same file; `/trace` and `/stats`.
 - **Golden bucket**: a local folder of analyst examples, retrieved by similarity to the question and added to the model's instructions.
 - **Tests**: an offline suite, and an opt-in group that checks the same rules on the real BigQuery dataset.
@@ -205,7 +205,7 @@ The plan was written before any code. These are the places where delivery depart
 
 ## 9. Revision after the client's answers
 
-The client answered all twelve questions on 2026-10-04 ([QUESTIONS.md](QUESTIONS.md)). Most answers confirm what was built. This section plans the changes that follow from the rest. Phases 10 to 17 continue the numbering above and have the same rule: a phase is complete only when every gate is met, with evidence in the tracker.
+The client answered all twelve questions on 2026-10-04 ([QUESTIONS.md](QUESTIONS.md)). Most answers confirm what was built. This section plans the changes that follow from the rest. Phases 10 to 18 continue the numbering above and have the same rule: a phase is complete only when every gate is met, with evidence in the tracker.
 
 ### What the answers change
 
@@ -298,13 +298,26 @@ Code: `config.py`, `agent/graph.py`.
 - [x] Setup verified from a fresh clone, with `uv` and with `pip`
 
 ### Phase 17: Independent review
-Planned as five separate review passes over the finished repository. Two were run: coverage of the brief and of the client's answers, and a mechanical sweep for stale text, links, counts and settings. The other three (security of the SQL gate and scoping, documentation against code, correctness of the agent and the delete flow) were not run. That ground is covered by the tests and by the checks of phase 15, but it did not get a separate review.
+Planned as five separate review passes over the finished repository. Two were run: coverage of the brief and of the client's answers, and a mechanical sweep for stale text, links, counts and settings. The other three (security of the SQL gate and scoping, documentation against code, correctness of the agent and the delete flow) were not run. That ground is covered by the tests and by the checks of phase 15, but it did not get a separate review at the time. The three passes were run in phase 18.
 
 The fixes follow one rule: the smallest change that settles the finding. This is a prototype for an evaluation, so a finding about the design is answered in the design, and code changes only where the code was wrong or a trace was missing something.
 - [x] Both passes completed, each reporting findings with file and line
 - [x] Every finding checked, then fixed or recorded with the reason it stands
 - [x] Full verification repeated after the fixes: tests, lint, BigQuery group, links, diagrams
 - [x] Review summary recorded in the tracker
+
+### Phase 18: Ready for submission
+The points that phase 17 left as they were are closed, the code is commented, the tests are checked for meaning, and the finished repository is reviewed once more.
+
+Code: `agent/graph.py`, `agent/tools.py`, `llm/`, `data/`, `safety/gateway.py`, `cli/app.py`.
+- [ ] The time limit is a deadline: a model call and a query each get the time that is left, and nothing new starts after it
+- [ ] A trace names the model that answered each step
+- [ ] A query requested in the same step as a delete still gets its answer, with the outcome of the delete first and written by the application
+- [ ] Inline comments in every module say why the code is the way it is
+- [ ] The tests are shown to mean something: breaking a rule on purpose makes them fail
+- [ ] All three example sessions recorded again with the final code, and their figures checked
+- [ ] The three review passes that phase 17 did not run are done on the final state, and their findings settled
+- [ ] Full verification: offline tests, lint, BigQuery group, links, diagrams, a fresh clone with `uv` and with `pip`
 
 ### Tests for this revision
 
@@ -315,4 +328,5 @@ The fixes follow one rule: the smallest change that settles the finding. This is
 | 13 | `test_bigquery_live.py` (opt-in); default backend; startup message | `conftest.py`, `test_smoke.py` | |
 | 14 | A question that exceeds the time limit stops with a message and a trace event | | |
 | 17 | The trace names the analyst examples given to the model, and which limit stopped a question; the model is told when its last step has come; a business question containing "the story behind" is not blocked | `test_agent.py`, `test_guard.py` | |
+| 18 | The deadline: model calls and queries are given the time left, retries and waits stop at it, a model failure that used up the time is reported as the time limit. A query asked for with a delete is answered, the outcome first, also when the model fails; one delete per question; waiting for the user is not charged. A trace names the model that answered. Two more hostile queries | The time-limit test (it now moves a clock, not a list of readings) | |
 
