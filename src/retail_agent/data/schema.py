@@ -9,6 +9,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+DATASET = "bigquery-public-data.thelook_ecommerce"
+
+
+def split_dataset(dataset: str) -> tuple[str, str]:
+    """'project.dataset' -> (project, dataset)."""
+    project, _, name = dataset.rpartition(".")
+    if not project or not name:
+        raise ValueError(f"Dataset must be 'project.dataset', got {dataset!r}")
+    return project, name
+
 
 @dataclass(frozen=True)
 class ColumnInfo:

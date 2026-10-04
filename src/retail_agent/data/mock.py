@@ -14,7 +14,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from retail_agent.data.schema import TABLES
+from retail_agent.data.schema import DATASET, TABLES, split_dataset
 
 END_DATE = datetime(2025, 9, 30)
 START_DATE = datetime(2023, 1, 1)
@@ -251,22 +251,26 @@ def generate(
     }
 
 
-def write_duckdb(frames: dict[str, pd.DataFrame], con: duckdb.DuckDBPyConnection) -> None:
-    """Create the tables from the canonical schema and fill them, so the types always match."""
+def write_duckdb(
+    frames: dict[str, pd.DataFrame], con: duckdb.DuckDBPyConnection, namespace: str
+) -> None:
+    """Create the tables in `namespace` from the canonical schema, so the types always match."""
+    con.execute(f"CREATE SCHEMA IF NOT EXISTS {namespace}")
     for table, columns in TABLES.items():
         ddl = ", ".join(f"{c.name} {_DUCKDB_TYPES[c.type]}" for c in columns)
-        con.execute(f"CREATE OR REPLACE TABLE {table} ({ddl})")
+        con.execute(f"CREATE OR REPLACE TABLE {namespace}.{table} ({ddl})")
         df = frames[table][[c.name for c in columns]]  # noqa: F841 (read by DuckDB by name)
-        con.execute(f"INSERT INTO {table} SELECT * FROM df")
+        con.execute(f"INSERT INTO {namespace}.{table} SELECT * FROM df")
 
 
-def build_mock_db(path: str | Path, seed: int = 42) -> Path:
+def build_mock_db(path: str | Path, dataset: str = DATASET, seed: int = 42) -> Path:
+    """Write the mock database file. Tables live in a schema named after the BigQuery dataset."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.unlink(missing_ok=True)
     con = duckdb.connect(str(path))
     try:
-        write_duckdb(generate(seed=seed), con)
+        write_duckdb(generate(seed=seed), con, split_dataset(dataset)[1])
     finally:
         con.close()
     return path
@@ -275,5 +279,6 @@ def build_mock_db(path: str | Path, seed: int = 42) -> Path:
 if __name__ == "__main__":
     from retail_agent.config import Settings
 
-    out = build_mock_db(Settings.from_env().duckdb_path)
+    settings = Settings.from_env()
+    out = build_mock_db(settings.duckdb_path, settings.bq_dataset)
     print(f"Mock database written to {out}")

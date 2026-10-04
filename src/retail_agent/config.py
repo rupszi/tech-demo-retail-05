@@ -7,13 +7,15 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from retail_agent.data.schema import DATASET
+
 
 @dataclass(frozen=True)
 class Settings:
     data_backend: str = "duckdb"
     duckdb_path: str = "data/mock.duckdb"
     gcp_project_id: str | None = None
-    bq_dataset: str = "bigquery-public-data.thelook_ecommerce"
+    bq_dataset: str = DATASET
     bq_max_bytes_billed: int = 1_000_000_000
     max_sql_retries: int = 2
     max_rows: int = 500
@@ -29,7 +31,7 @@ class Settings:
             data_backend=env("DATA_BACKEND", "duckdb"),
             duckdb_path=env("DUCKDB_PATH", "data/mock.duckdb"),
             gcp_project_id=env("GCP_PROJECT_ID") or None,
-            bq_dataset=env("BQ_DATASET", "bigquery-public-data.thelook_ecommerce"),
+            bq_dataset=env("BQ_DATASET", DATASET),
             bq_max_bytes_billed=int(env("BQ_MAX_BYTES_BILLED", "1000000000")),
             max_sql_retries=int(env("MAX_SQL_RETRIES", "2")),
             max_rows=int(env("MAX_ROWS", "500")),

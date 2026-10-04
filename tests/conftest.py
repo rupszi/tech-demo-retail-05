@@ -1,8 +1,7 @@
-import duckdb
 import pytest
 
 from retail_agent.data.duckdb_backend import DuckDBBackend
-from retail_agent.data.mock import generate, write_duckdb
+from retail_agent.data.mock import generate
 
 
 @pytest.fixture(scope="session")
@@ -12,6 +11,4 @@ def frames():
 
 @pytest.fixture(scope="session")
 def backend(frames):
-    con = duckdb.connect(":memory:")
-    write_duckdb(frames, con)
-    return DuckDBBackend(con)
+    return DuckDBBackend.from_frames(frames)

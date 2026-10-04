@@ -1,8 +1,11 @@
 """BigQuery backend over `thelook_ecommerce`.
 
 Extends the lean runner provided with the brief (execute a query, fetch a table schema) with the
-guards a production agent needs: a dry-run, a hard cap on bytes billed, a timeout, a default
-dataset so generated SQL can use bare table names, and errors classified for the retry logic.
+guards a production agent needs: a dry-run, a hard cap on bytes billed, a timeout, and errors
+classified for the retry logic.
+
+Jobs run without a default dataset on purpose: a bare table name resolves to nothing, so the only
+tables a query can reach are the fully qualified ones written by the SQL gate.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ from google.api_core import exceptions as gexc
 from google.cloud import bigquery
 
 from retail_agent.data.base import DataError, DryRunResult
-from retail_agent.data.schema import TABLES, ColumnInfo
+from retail_agent.data.schema import DATASET, TABLES, ColumnInfo
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +40,7 @@ class BigQueryBackend:
     def __init__(
         self,
         project_id: str | None,
-        dataset: str = "bigquery-public-data.thelook_ecommerce",
+        dataset: str = DATASET,
         max_bytes_billed: int = 1_000_000_000,
         timeout_s: float = 60.0,
         client: Any | None = None,
@@ -61,7 +64,6 @@ class BigQueryBackend:
 
     def _config(self, dry_run: bool) -> bigquery.QueryJobConfig:
         return bigquery.QueryJobConfig(
-            default_dataset=self.dataset,
             maximum_bytes_billed=self.max_bytes_billed,
             dry_run=dry_run,
             use_query_cache=not dry_run,

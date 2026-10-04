@@ -7,12 +7,16 @@ from retail_agent.data.base import DataError
 from retail_agent.data.bigquery_backend import BigQueryBackend
 from retail_agent.data.schema import TABLES
 
+DS = "`bigquery-public-data`.thelook_ecommerce"
+
 
 # ---- contract: DuckDB backend ----------------------------------------------------------------
 def test_schema_matches_mock_tables(backend):
     for table, cols in TABLES.items():
         got = backend._con.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = ? "
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_catalog = 'bigquery-public-data' "
+            "AND table_schema = 'thelook_ecommerce' AND table_name = ? "
             "ORDER BY ordinal_position",
             [table],
         ).fetchall()
@@ -24,13 +28,20 @@ def test_execute_bigquery_dialect(backend):
     df = backend.execute(
         "SELECT FORMAT_TIMESTAMP('%Y-%m', created_at) AS month, "
         "ROUND(SUM(sale_price), 2) AS revenue "
-        "FROM order_items GROUP BY month ORDER BY month LIMIT 5"
+        f"FROM {DS}.order_items GROUP BY month ORDER BY month LIMIT 5"
     )
     assert list(df.columns) == ["month", "revenue"] and len(df) == 5
 
 
 def test_dry_run_ok(backend):
-    assert backend.dry_run("SELECT COUNT(*) FROM orders").bytes_processed is None
+    assert backend.dry_run(f"SELECT COUNT(*) FROM {DS}.orders").bytes_processed is None
+
+
+def test_bare_table_names_do_not_resolve(backend):
+    """Same behaviour as BigQuery without a default dataset."""
+    for fn in (backend.dry_run, backend.execute):
+        with pytest.raises(DataError):
+            fn("SELECT COUNT(*) FROM orders")
 
 
 @pytest.mark.parametrize("sql", ["SELEC 1", "SELECT nope FROM orders", "SELECT * FROM not_a_table"])
@@ -79,7 +90,7 @@ def test_bq_dry_run_flags_and_cost():
     cfg = client.configs[0]
     assert result.bytes_processed == 5000
     assert cfg.dry_run is True and cfg.maximum_bytes_billed == 10_000
-    assert str(cfg.default_dataset).endswith("thelook_ecommerce")
+    assert cfg.default_dataset is None  # bare table names must not resolve
 
 
 def test_bq_dry_run_rejects_expensive_query():

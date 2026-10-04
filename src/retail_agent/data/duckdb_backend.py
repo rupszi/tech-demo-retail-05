@@ -1,4 +1,9 @@
-"""Local backend over the mock DuckDB file. SQL arrives in BigQuery dialect and is transpiled."""
+"""Local backend over the mock DuckDB file.
+
+The mock file is attached under the BigQuery project name and its tables live in a schema named
+after the dataset, so `project.dataset.table` resolves exactly as it does in BigQuery and a bare
+table name resolves to nothing. SQL arrives in BigQuery dialect and is transpiled.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,8 @@ import sqlglot
 from sqlglot.errors import SqlglotError
 
 from retail_agent.data.base import DataError, DryRunResult
-from retail_agent.data.schema import TABLES, ColumnInfo
+from retail_agent.data.mock import write_duckdb
+from retail_agent.data.schema import DATASET, TABLES, ColumnInfo, split_dataset
 
 _SYNTAX_ERRORS = (duckdb.ParserException, duckdb.BinderException, duckdb.CatalogException)
 
@@ -20,8 +26,21 @@ class DuckDBBackend:
         self._con = con
 
     @classmethod
-    def from_path(cls, path: str) -> DuckDBBackend:
-        return cls(duckdb.connect(path, read_only=True))
+    def from_path(cls, path: str, dataset: str = DATASET) -> DuckDBBackend:
+        project, _ = split_dataset(dataset)
+        con = duckdb.connect()
+        escaped = str(path).replace("'", "''")
+        con.execute(f"ATTACH '{escaped}' AS \"{project}\" (READ_ONLY)")
+        return cls(con)
+
+    @classmethod
+    def from_frames(cls, frames: dict[str, pd.DataFrame], dataset: str = DATASET) -> DuckDBBackend:
+        """In-memory database, used by the tests."""
+        project, name = split_dataset(dataset)
+        con = duckdb.connect()
+        con.execute(f"ATTACH ':memory:' AS \"{project}\"")
+        write_duckdb(frames, con, f'"{project}".{name}')
+        return cls(con)
 
     def list_tables(self) -> list[str]:
         return list(TABLES)
