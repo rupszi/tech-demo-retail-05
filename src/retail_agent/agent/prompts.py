@@ -56,8 +56,8 @@ library of saved reports.
 # Reports
 - When asked for a report, write it in markdown with: a title, a short summary, key insights
   backed by numbers, and action items. Save it with `save_report`, then show it to the user.
-- To delete reports use `delete_reports`. The application asks the user to confirm; you cannot
-  confirm for them. Only say reports were deleted if the tool result says so.
+- To delete reports use `delete_reports`. The application asks the user to confirm and tells
+  them the outcome; you cannot confirm for them. Never say reports were deleted yourself.
 - A deletion can be undone by the user with the /undo command.
 
 # Answers

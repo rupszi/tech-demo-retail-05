@@ -51,9 +51,12 @@ class ChatSession:
         self.profile = profile
         self.reports = reports or ReportStore(settings.reports_db_path)
         self.tracer = tracer or Tracer(settings.trace_dir, self.conversation_id, profile.user_id)
-        if hasattr(llm, "on_failure"):  # make model retries and fallbacks visible in the trace
+        if hasattr(llm, "on_failure"):  # make model retries, fallbacks and waits visible
             llm.on_failure = lambda model, attempt, error: self.tracer.event(
                 "llm_retry", model, attempt=attempt, error=str(error)[:200]
+            )
+            llm.on_wait = lambda seconds: self.tracer.event(
+                "llm_wait", "rate_limit", seconds=round(seconds)
             )
         gateway = QueryGateway(
             backend, profile, max_rows=settings.max_rows, dataset=settings.bq_dataset

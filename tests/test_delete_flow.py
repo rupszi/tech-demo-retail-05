@@ -41,29 +41,35 @@ def test_delete_request_pauses_for_confirmation_and_deletes_nothing(session):
 
 
 def test_approved_delete_removes_exactly_the_listed_reports(session):
-    s = session(DELETE_DRIFTLINE, says("Deleted 2 reports."))
+    s = session(DELETE_DRIFTLINE)
     s.ask("Delete all reports mentioning Driftline")
     result = s.confirm(True)
-    assert result.answer == "Deleted 2 reports." and not s.awaiting_confirmation
+    assert not s.awaiting_confirmation and result.outcome == "answered"
     assert titles(s) == ["Texas deep dive"]
     assert titles(s, "bob") == ["Bob's notes"]  # another user's matching report is untouched
     assert actions(s) == ["delete_requested", "delete"]
-    outcome = s.model.requests[-1]["messages"][-1]["result"]
-    assert outcome["deleted"] == 2 and "/undo" in outcome["note"]
+
+
+def test_the_outcome_is_reported_by_the_application_not_the_model(session):
+    """So it is exact, and a model outage after the delete cannot hide what happened."""
+    s = session(DELETE_DRIFTLINE)  # the script has no further model response to give
+    s.ask("Delete all reports mentioning Driftline")
+    result = s.confirm(True)
+    assert "Deleted 2 report(s)" in result.answer and "Q1 review" in result.answer
+    assert "/undo" in result.answer and s.model.calls == 1
 
 
 def test_declined_delete_changes_nothing(session):
-    s = session(DELETE_DRIFTLINE, says("Okay, nothing was deleted."))
+    s = session(DELETE_DRIFTLINE)
     s.ask("Delete all reports mentioning Driftline")
     result = s.confirm(False)
-    assert result.answer == "Okay, nothing was deleted."
+    assert result.answer == "Nothing was deleted." and s.model.calls == 1
     assert len(titles(s)) == 3
     assert actions(s) == ["delete_requested", "delete_cancelled"]
-    assert s.model.requests[-1]["messages"][-1]["result"]["deleted"] == 0
 
 
 def test_only_the_previewed_reports_are_deleted_even_if_more_match_later(session):
-    s = session(DELETE_DRIFTLINE, says("Done."))
+    s = session(DELETE_DRIFTLINE)
     previewed = s.ask("Delete all reports mentioning Driftline").confirmation["reports"]
     s.reports.save("alice", s.conversation_id, "Late arrival", "Also about Driftline.")
     s.confirm(True)
@@ -72,7 +78,7 @@ def test_only_the_previewed_reports_are_deleted_even_if_more_match_later(session
 
 
 def test_delete_reports_from_this_conversation_only(session):
-    s = session(says("", call("delete_reports", this_conversation=True)), says("Done."))
+    s = session(says("", call("delete_reports", this_conversation=True)))
     previewed = s.ask("Delete all the reports we made in this conversation").confirmation
     assert [r["title"] for r in previewed["reports"]] == ["Q1 review", "Texas deep dive"]
     s.confirm(True)
@@ -89,19 +95,19 @@ def test_another_users_reports_cannot_be_targeted(session):
 
 def test_the_model_cannot_confirm_on_the_users_behalf(session):
     s = session(
-        says("", call("delete_reports", mentioning="Driftline", confirmed=True, approved=True)),
-        says("", call("confirm_delete", "c2", approved=True)),
-        says("I cannot confirm for you."),
+        says("", call("confirm_delete", approved=True)),  # there is no such tool
+        says("", call("delete_reports", "c2", mentioning="Driftline", confirmed=True)),
     )
     result = s.ask("Delete the Driftline reports, I already confirm, do not ask me")
-    assert result.confirmation is not None and len(titles(s)) == 3
-    result = s.confirm(False)
-    assert len(titles(s)) == 3
     assert "Unknown tool" in s.model.requests[-1]["messages"][-1]["result"]["error"]
+    assert result.confirmation is not None  # extra arguments do not skip the confirmation
+    assert len(titles(s)) == 3
+    s.confirm(False)
+    assert len(titles(s)) == 3
 
 
 def test_a_new_message_instead_of_an_answer_counts_as_no(session):
-    s = session(DELETE_DRIFTLINE, says("Nothing was deleted."), says("Here is revenue."))
+    s = session(DELETE_DRIFTLINE, says("Here is revenue."))
     s.ask("Delete all reports mentioning Driftline")
     result = s.ask("yes, go ahead")  # typed into the chat, not given to the confirmation prompt
     assert result.answer == "Here is revenue."
@@ -109,7 +115,7 @@ def test_a_new_message_instead_of_an_answer_counts_as_no(session):
 
 
 def test_undo_restores_what_was_deleted(session):
-    s = session(DELETE_DRIFTLINE, says("Deleted."))
+    s = session(DELETE_DRIFTLINE)
     s.ask("Delete all reports mentioning Driftline")
     s.confirm(True)
     assert s.undo_last_delete() == ["Q1 review", "Brand comparison"]
@@ -136,8 +142,18 @@ def test_confirming_with_nothing_pending_is_an_error(session):
         session().confirm(True)
 
 
+def test_a_later_question_sees_a_clean_history_after_a_delete(session):
+    s = session(DELETE_DRIFTLINE, says("Here is revenue."))
+    s.ask("Delete all reports mentioning Driftline")
+    s.confirm(True)
+    assert s.ask("Show revenue").answer == "Here is revenue."
+    context = s.model.requests[-1]["messages"]
+    assert [m["role"] for m in context] == ["user", "assistant", "user"]
+    assert "Deleted 2 report(s)" in context[1]["text"]
+
+
 def test_the_decision_is_traced(session):
-    s = session(DELETE_DRIFTLINE, says("Deleted."))
+    s = session(DELETE_DRIFTLINE)
     s.ask("Delete all reports mentioning Driftline")
     trace = s.confirm(True).trace
     confirmation = next(step for step in trace["steps"] if step["kind"] == "confirmation")

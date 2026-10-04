@@ -34,7 +34,13 @@ Ask a question about sales, customers or products, or ask for a report.
   /help          show this help
   /quit          leave
 """
-_PROGRESS = {"guard": "Checking the request…", "llm": "Thinking…", "sql": "Querying the data…"}
+_PROGRESS = {
+    "guard": "Checking the request…",
+    "llm": "Thinking…",
+    "sql": "Querying the data…",
+    "llm_retry": "The model is busy, retrying…",
+    "llm_wait": "The model's rate limit was reached, waiting for it (up to a minute)…",
+}
 
 
 def main(argv: list[str] | None = None) -> int:

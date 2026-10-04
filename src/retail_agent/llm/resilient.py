@@ -16,6 +16,7 @@ from collections.abc import Callable, Sequence
 from retail_agent.llm.base import LLM, LLMError, LLMResponse, LLMUnavailable, Message, ToolSpec
 
 RetryHook = Callable[[str, int, LLMError], None]
+_BACKOFF_CAP = 20.0  # seconds; the longest pause between two retries of one model
 
 
 class ResilientLLM:
@@ -25,11 +26,12 @@ class ResilientLLM:
         *,
         attempts: int = 3,
         base_delay: float = 2.0,
-        max_delay: float = 20.0,
+        max_delay: float = 60.0,
         short_wait: float = 5.0,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         on_failure: RetryHook | None = None,
+        on_wait: Callable[[float], None] | None = None,
     ):
         self._models = list(models)
         self._attempts = attempts
@@ -41,6 +43,7 @@ class ResilientLLM:
         self._resting_until: dict[int, float] = {}  # by model object, not name
         self._last_error: LLMError | None = None
         self.on_failure = on_failure  # called for every failed attempt, for tracing
+        self.on_wait = on_wait  # called before a long wait, so the interface can say so
         self.name = self._models[0].name
 
     def generate(
@@ -58,6 +61,8 @@ class ResilientLLM:
         soonest = min(self._models, key=self._rest_left)
         wait = self._rest_left(soonest)
         if 0 < wait <= self._max_delay:
+            if self.on_wait:
+                self.on_wait(wait)
             self._sleep(wait + 0.5)
             response = self._try(soonest, system, messages, tools)
             if response is not None:
@@ -89,6 +94,6 @@ class ResilientLLM:
                 if e.retry_after is not None:
                     self._sleep(e.retry_after + 0.5)
                 else:
-                    delay = min(self._max_delay, self._base_delay * 2 ** (attempt - 1))
+                    delay = min(_BACKOFF_CAP, self._base_delay * 2 ** (attempt - 1))
                     self._sleep(delay * random.uniform(0.5, 1.5))
         return None

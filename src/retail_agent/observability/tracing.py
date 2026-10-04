@@ -77,6 +77,8 @@ class Tracer:
                 self._turn["steps"].append(record)
 
     def event(self, kind: str, name: str, **attrs: Any) -> None:
+        if self._on_step:
+            self._on_step(f"{kind}: {name}")
         if self._turn is not None:
             self._turn["steps"].append({"kind": kind, "name": name, "ms": 0, **attrs})
 

@@ -48,10 +48,10 @@ def test_transient_errors_are_retried_with_growing_backoff():
 
 
 def test_backoff_is_capped():
-    model = ScriptedLLM(*[transient()] * 5, says("ok"))
-    llm, sleeps = resilient(model, attempts=6, base_delay=2.0, max_delay=5.0)
+    model = ScriptedLLM(*[transient()] * 7, says("ok"))
+    llm, sleeps = resilient(model, attempts=8, base_delay=2.0)
     llm.generate("s", [], [])
-    assert max(sleeps) <= 5.0 * 1.5
+    assert max(sleeps) <= 20.0 * 1.5
 
 
 def test_falls_back_to_the_next_model_when_one_keeps_failing():
@@ -96,18 +96,20 @@ def test_a_rate_limited_model_is_rested_and_skipped_until_it_may_be_called_again
 
 
 def test_when_every_model_is_rate_limited_the_soonest_one_is_waited_for():
-    primary = ScriptedLLM(rate_limited(60.0))
+    primary = ScriptedLLM(rate_limited(50.0))
     fallback = ScriptedLLM(rate_limited(12.0), says("after the wait"))
     llm, sleeps = resilient(primary, fallback)
+    announced = []
+    llm.on_wait = announced.append
     assert llm.generate("s", [], []).text == "after the wait"
-    assert sleeps == [12.5] and primary.calls == 1
+    assert sleeps == [12.5] and primary.calls == 1 and announced == [12.0]
 
 
 def test_when_every_model_is_rate_limited_for_long_the_user_is_told_how_long():
-    llm, sleeps = resilient(ScriptedLLM(rate_limited(60.0)), ScriptedLLM(rate_limited(45.0)))
+    llm, sleeps = resilient(ScriptedLLM(rate_limited(600.0)), ScriptedLLM(rate_limited(450.0)))
     with pytest.raises(LLMUnavailable) as e:
         llm.generate("s", [], [])
-    assert sleeps == [] and e.value.retry_after == 45.0
+    assert sleeps == [] and e.value.retry_after == 450.0
 
 
 def test_retry_delay_is_read_from_a_gemini_rate_limit_error():

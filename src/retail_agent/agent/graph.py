@@ -1,13 +1,14 @@
 """The conversation flow, as a LangGraph graph.
 
-    START -> guard -> agent <-> tools -> confirm_delete
-               |        |                      |
-              END      END  <------------------+ (back to agent)
+    START -> guard -> agent <-> tools -> confirm_delete -> END
+               |        |
+              END      END
 
 - guard:          rule-based check of the user's message; a blocked message never reaches the model
 - agent:          one model call; it either asks for tools or gives the final answer
 - tools:          runs the requested tools; a delete request is only prepared here, never executed
-- confirm_delete: pauses the graph until the user decides, then deletes exactly what was shown
+- confirm_delete: pauses the graph until the user decides, deletes exactly what was shown, and
+                  reports the outcome itself, so what the user is told never depends on the model
 """
 
 from __future__ import annotations
@@ -214,29 +215,34 @@ def build_graph(deps: AgentDeps):
 
         On resume this function runs again from the top and `interrupt` returns the decision, so
         nothing before it may have side effects. The reports deleted are the ones snapshotted in
-        the state by `tools`, not a fresh search.
+        the state by `tools`, not a fresh search. The outcome message is written here rather than
+        by the model: it is exact, and it cannot be lost to a model outage after the delete.
         """
         pending = state["pending_delete"]
         decision = interrupt({"action": "delete_reports", "reports": pending["reports"]})
         approved = isinstance(decision, dict) and decision.get("approved") is True
         if approved:
             deleted = deps.reports.delete(owner, pending["ids"])
-            result = {
-                "deleted": len(deleted),
-                "titles": [r.title for r in deleted],
-                "note": "Deleted. The user can restore them with /undo.",
-            }
+            titles = "\n".join(f"- {r.title}" for r in deleted)
+            answer = f"Deleted {len(deleted)} report(s):\n{titles}\n\nType /undo to restore them."
+            result = {"deleted": len(deleted), "titles": [r.title for r in deleted]}
         else:
             deps.reports.log(owner, "delete_cancelled", pending["ids"])
-            result = {"deleted": 0, "note": "The user declined. Nothing was deleted."}
+            answer = "Nothing was deleted."
+            result = {"deleted": 0, "note": "The user declined."}
         tracer.event("confirmation", "delete_reports", approved=approved, count=len(pending["ids"]))
-        message = {
+        tool_result = {
             "role": "tool",
             "call_id": pending["call_id"],
             "name": "delete_reports",
             "result": result,
         }
-        return {"messages": [message], "pending_delete": None}
+        return {
+            "messages": [tool_result, _text_message(answer)],
+            "pending_delete": None,
+            "answer": answer,
+            "outcome": "answered",
+        }
 
     graph = StateGraph(AgentState)
     graph.add_node("guard", guard)
@@ -255,5 +261,5 @@ def build_graph(deps: AgentDeps):
         lambda s: "confirm_delete" if s.get("pending_delete") else "agent",
         ["confirm_delete", "agent"],
     )
-    graph.add_edge("confirm_delete", "agent")
+    graph.add_edge("confirm_delete", END)
     return graph.compile(checkpointer=InMemorySaver())
