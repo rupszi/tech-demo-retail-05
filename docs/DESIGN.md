@@ -31,7 +31,7 @@ Three ideas shape the design.
 | 3 | High-stakes oversight | **Built and tested** | [3.3](#33-high-stakes-oversight) |
 | 4 | Continuous improvement | Design | [3.4](#34-continuous-improvement) |
 | 5 | Resilience and graceful error handling | **Built and tested** | [3.5](#35-resilience) |
-| 6 | Quality assurance | 639 offline tests and 79 against BigQuery; evaluation design | [3.6](#36-quality-assurance) |
+| 6 | Quality assurance | 640 offline tests and 79 against BigQuery; evaluation design | [3.6](#36-quality-assurance) |
 | 7 | Observability | **Built and tested** | [3.7](#37-observability) |
 | 8 | Agility (tone without redeployment) | Tone file read on every question; design for the rest | [3.8](#38-agility-changing-the-tone-without-a-deployment) |
 
@@ -462,6 +462,7 @@ This loop was run by hand while building the prototype, which shows what it look
 | A brand total added up wrongly by the model | The model did arithmetic | The trio now returns every total from SQL |
 | Every call retrying a rate-limited model | No memory of the rate limit | The model is rested for as long as the provider asks |
 | "Try again" shown after a delete had succeeded | Outcome message depended on the model | The application reports the outcome |
+| A "why" question ran eight exploratory queries, reached the work limit and showed nothing | The model was not told that its steps were running out | The tool results announce the last step, so the work ends in an answer |
 
 ### 3.5 Resilience
 
@@ -479,18 +480,18 @@ The brief asks that errors and empty results are detected and corrected before g
 | BigQuery unavailable | Error class | The same SQL is retried once; the model is not asked to rewrite a correct query |
 | More rows than the limit | Result reached the limit | The result is marked incomplete and the model is told to aggregate |
 
-After the retry limit, no further query runs for that question and the model is told to explain plainly what it could not do. In the example run two of eleven queries failed on real BigQuery and both were corrected on the next attempt.
+After the retry limit, no further query runs for that question and the model is told to explain plainly what it could not do. In the recorded sessions three of 23 queries failed on real BigQuery, and each was corrected on the next attempt.
 
 **Bounded cost and time.**
 
 - Broken SQL is caught before it is billed.
-- A question may use at most 8 model calls, 60,000 tokens and 120 seconds. Past any of these, the assistant stops and asks the user to narrow the question. The time limit is checked between steps, so a step that is already running is allowed to finish; how long that can be is stated below.
+- A question may use at most 8 model calls, 60,000 tokens and 120 seconds. When one model call is left, the tool results say so and tell the model to answer from what it has, so a question that explores for too long ends in an answer. Past any of the limits, the assistant stops and asks the user to narrow the question. The time limit is checked between steps, so a step that is already running is allowed to finish; how long that can be is stated below.
 - At most 500 rows are fetched and 50 are shown to the model, with a note when rows were left out.
 - Blocked messages and confirmed deletes use no model calls.
 - Old result tables are not resent with every turn.
 - BigQuery caps the bytes a query may bill.
 
-Observed in the example run: about 6,500 tokens and 1.9 model calls per question on average, 5 to 10 MB scanned per query, and a median of 4.0 seconds per answer.
+Observed over the three recorded sessions: about 8,800 tokens and 2.4 model calls per question on average, at most 10 MB scanned per query, and a median of 4.7 seconds per answer.
 
 **How long an answer may take.** The client accepts the assumed response times and allows one to two minutes for long reports. Ordinary questions are answered in seconds. A long report is produced within the same request, with progress shown, and the time limit stops anything that runs longer. No background job is needed.
 
@@ -512,7 +513,7 @@ The prototype does not compute dollars. It applies the limits directly: model ca
 - A rate limit that asks for a long wait rests that model for exactly that long, and the next model in the list answers meanwhile. This is a circuit breaker whose timing is set by the provider.
 - If every model is resting, the soonest one is waited for, up to a minute, with a message in the interface. Beyond that, the user is told how long to wait.
 
-This was exercised for real: on the free tier the two larger models allow 20 requests a day, and the example run was answered almost entirely by the third model without the user doing anything.
+This was exercised for real: on the free tier the two larger models allow 20 requests a day, and the recorded sessions were answered almost entirely by the third model without the user doing anything.
 
 **Never crashing the interface.** A failing tool returns an error to the model instead of raising. An unexpected exception anywhere in a turn is caught at the session boundary, recorded in the trace with its cause, and turned into a short apology. The conversation continues.
 
@@ -522,8 +523,8 @@ This was exercised for real: on the free tier the two larger models allow 20 req
 
 **Before deployment.** Four kinds of checks, from cheapest to most expensive.
 
-1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 639 tests that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results.
-2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. These are also in the 639.
+1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 640 tests that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results.
+2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. These are also in the 640.
 3. **The same rules on the real dataset.** A further group of 79 tests runs against BigQuery on request, as the client suggested: the schema, every legitimate query after the gate has rewritten it (as free dry-runs), brand scope and personal data on real data, and every analyst example.
 4. **Evaluation with the real model.** A fixed set of questions run against the real model and a fixed copy of the data, scored automatically:
    - *Result accuracy.* For questions with a known answer (the golden trios supply them), the result of the assistant's query is compared with the result of the analyst's query. Comparing results, not SQL text, accepts any correct query.
@@ -566,7 +567,7 @@ These come from the traces. They are complemented by moderated sessions with a f
 | Query | The SQL the model wrote, the SQL that ran, rows, bytes scanned, error code and message, whether it was cut off, redactions |
 | Report saved | Report id |
 | Confirmation | Approved or cancelled, how many reports |
-| Budget | Which limit was reached: model calls, tokens or time |
+| Budget | That the model was told its last step had come; and which limit was reached: model calls, tokens or time |
 | Unexpected error | Type and message |
 
 Questions and answers are scrubbed for personal data before they are logged. Result rows are never logged, only their count.
@@ -670,7 +671,7 @@ Around the gate:
 | Model timeout or server error | Error class | Backoff and retry, then next model | "The model is busy, retrying" while it works |
 | Model rate limit | Error with a wait time | Wait if short, otherwise rest it and use the next model | Usually nothing |
 | Every model unavailable | All resting or failed | Wait up to a minute for the soonest, else stop | How long to wait before trying again |
-| Work limit for one question | Call and token counters | Stop | A request to narrow or split the question |
+| Work limit for one question | Call and token counters | The model is told when its last step has come; past the limit, stop | An answer from what was found; or a request to narrow or split the question |
 | Time limit for one question | Clock, checked between steps | Stop | The same request, naming the time limit |
 | Tool crashes | Exception caught in the tool step | Error result to the model | An explanation that it did not work |
 | Any other exception | Caught at the session boundary | Logged with cause; turn ends | A short apology; the conversation continues |

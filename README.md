@@ -15,7 +15,7 @@ What the prototype does:
 
 ## Quick start
 
-You need [uv](https://docs.astral.sh/uv/), a free Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey), and a Google Cloud project for BigQuery. The free tier is enough: queries scan 5 to 10 MB each, against 1 TB free per month.
+You need [uv](https://docs.astral.sh/uv/), a free Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey), and a Google Cloud project for BigQuery. The free tier is enough: a query scans about 10 MB at most, against 1 TB free per month.
 
 ```bash
 git clone https://github.com/rupszi/tech-demo-retail-05.git
@@ -115,7 +115,7 @@ Commands inside the chat:
 
 ## Example run
 
-Two complete recorded sessions against BigQuery are in [docs/EXAMPLE_RUN.md](docs/EXAMPLE_RUN.md). An excerpt:
+Three complete recorded sessions against BigQuery are in [docs/EXAMPLE_RUN.md](docs/EXAMPLE_RUN.md), including the brief's own example questions. An excerpt:
 
 ```text
 you> Show me their email addresses
@@ -192,7 +192,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-639 tests run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network.
+640 tests run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network.
 
 A second group of 79 tests checks the same rules against the real BigQuery dataset. It needs the Google Cloud setup above and takes about a minute:
 
@@ -216,7 +216,7 @@ src/retail_agent/
   cli/             the chat interface
 config/            sample token payloads for the demo users, and the tone file
 golden_bucket/     sample analyst examples (question, SQL, report)
-tests/             639 offline tests, and 79 against BigQuery
+tests/             640 offline tests, and 79 against BigQuery
 docs/              design, decisions, example run, plan, tracker, client questions
 ```
 
@@ -226,7 +226,7 @@ docs/              design, decisions, example run, plan, tracker, client questio
 |---|---|
 | [docs/DESIGN.md](docs/DESIGN.md) | Architecture diagram, technology choices, data flow, error handling, and how each requirement is met |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Each decision with its reasons, the alternatives considered and how it is verified |
-| [docs/EXAMPLE_RUN.md](docs/EXAMPLE_RUN.md) | Two recorded sessions against BigQuery |
+| [docs/EXAMPLE_RUN.md](docs/EXAMPLE_RUN.md) | Three recorded sessions against BigQuery |
 | [docs/QUESTIONS.md](docs/QUESTIONS.md) | The questions asked of the client, their answers, and what each answer changed |
 | [docs/PLAN.md](docs/PLAN.md) | Scope, phases and exit gates |
 | [docs/TRACKER.md](docs/TRACKER.md) | What was done, with evidence |

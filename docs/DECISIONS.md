@@ -337,6 +337,7 @@ These decisions were made while building and running the agent. Several of them 
 | A write statement, several statements, a forbidden function | No retry |
 | Empty result | A hint to check filter values, once; then stop |
 | The database is unavailable | The same SQL is retried once by the application; the model is not asked to rewrite it |
+| One model call left for the question | The tool results tell the model to answer now from what it has |
 | 8 model calls, 60,000 tokens or 120 seconds used on one question | Stop and ask the user to narrow the question |
 
 **Why.** The brief asks for self-correction "before giving up" and "without inflating costs". Those pull in opposite directions, and a fixed budget is the honest way to satisfy both. The distinctions matter because the wrong response wastes money: rewriting a correct query when the database is down, or giving a second chance to a `DROP TABLE`.
@@ -345,7 +346,9 @@ These decisions were made while building and running the agent. Several of them 
 
 **The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 76 seconds for that reason. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is checked between steps; a step that is already running is allowed to finish. So it is not a hard deadline: how long a single step can run in the worst case is stated in [DESIGN 3.5](DESIGN.md#35-resilience), with the change that would close the gap.
 
-**Observed.** In the recorded sessions two of eleven queries failed, both on a date function that BigQuery does not support for timestamps. Both were corrected on the next attempt, and neither was billed. Earlier runs also showed wrong apostrophe escaping, corrected the same way.
+**Announcing the last step.** The first recording of "Why did our churn rate spike last month?" ran eight queries, one per step, reached the limit on model calls and showed the limit message. The cost was bounded, but the work was thrown away. Now, when one model call is left, every tool result carries an instruction to answer from what has been found and to say what could not be checked. Recorded again, the same question ends in an answer on its eighth call.
+
+**Observed.** In the recorded sessions three of 23 queries failed: two on a date function that BigQuery does not support for timestamps, and one on a wrong alias. Each was corrected on the next attempt, and none was billed. Earlier runs also showed wrong apostrophe escaping, corrected the same way.
 
 **Where.** `Toolbox.run_sql` in `agent/tools.py`. Tests: the "self-correction and its limits" group in `tests/test_agent.py`.
 
@@ -504,5 +507,5 @@ Run on 2026-10-04 with the project `opsfleet-demo`. The first five points are no
 - With real brands, each restricted profile sees only its own brands, including a brand name containing an apostrophe, which confirms values are escaped correctly.
 - `SELECT * FROM users` on real data returns only the eight safe columns.
 - All seven analyst examples pass the SQL gate and run on BigQuery, scanning 5 to 10 MB each.
-- Two full conversations were recorded with real Gemini and real BigQuery ([EXAMPLE_RUN.md](EXAMPLE_RUN.md)): 11 questions, 9 answered and 2 stopped by the guard as intended, none failed; two of eleven queries failed and were corrected by the agent; a delete was declined and another confirmed.
-- Every figure in the recorded quarterly report was checked against the results of its two queries: revenue, order counts and return rates all match.
+- Three conversations were recorded with real Gemini and real BigQuery ([EXAMPLE_RUN.md](EXAMPLE_RUN.md)): 14 questions, 12 answered and 2 stopped by the guard as intended, none failed; three of 23 queries failed and were corrected by the agent; a delete was declined and another confirmed.
+- Every figure in the recorded quarterly report, and every figure in the third session, was checked against the results of its queries by running the stored SQL again. Two loose sentences in the other answers are listed at the top of the example run.

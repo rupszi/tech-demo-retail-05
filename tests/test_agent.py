@@ -13,7 +13,7 @@ def sql_steps(result):
 
 
 def budget_step(result):
-    return next(s for s in result.trace["steps"] if s["kind"] == "budget")
+    return [s for s in result.trace["steps"] if s["kind"] == "budget"][-1]
 
 
 def tool_results(session, index=-1):
@@ -165,6 +165,16 @@ def test_work_limit_per_question_is_enforced(chat):
     assert result.answer == MSG_BUDGET and result.outcome == "failed"
     assert session.model.calls == 3
     assert budget_step(result)["name"] == "calls"  # the trace says which limit was reached
+
+
+def test_the_model_is_told_when_its_last_step_has_come_so_the_work_ends_in_an_answer(chat):
+    explore = says("", call("run_sql", sql=COUNT))
+    session = chat(explore, explore, says("Here is what I found."), max_llm_calls=3)
+    result = session.ask("Why did churn rise?")
+    assert result.answer == "Here is what I found." and result.outcome == "answered"
+    assert "instruction" not in tool_results(session, 1)[0]  # two steps were still left
+    assert "last step" in tool_results(session, 2)[-1]["instruction"]
+    assert budget_step(result)["name"] == "last_step"
 
 
 def test_token_budget_is_enforced(chat):

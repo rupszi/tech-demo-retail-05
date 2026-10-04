@@ -48,6 +48,11 @@ MSG_BUDGET = (
     "I reached the work limit for a single question before finishing. "
     "Please narrow the question or split it into smaller steps."
 )
+# Added to the tool results when one model call is left, so the work ends in an answer.
+LAST_STEP = (
+    "This was the last step allowed for this question. Do not call any more tools. Answer now "
+    "from the results you already have, and say plainly what you could not check."
+)
 
 
 class AgentState(TypedDict, total=False):
@@ -224,6 +229,10 @@ def build_graph(deps: AgentDeps):
                 tracer.event("error", f"tool:{name}", error=f"{type(e).__name__}: {e}"[:300])
                 result = {"error": "The tool failed unexpectedly. Tell the user it did not work."}
             results.append({"role": "tool", "call_id": call["id"], "name": name, "result": result})
+        if results and state["llm_calls"] >= settings.max_llm_calls - 1:
+            tracer.event("budget", "last_step", llm_calls=state["llm_calls"])
+            for message in results:
+                message["result"] = {**message["result"], "instruction": LAST_STEP}
         return {
             "messages": results,
             "sql_failures": failures,

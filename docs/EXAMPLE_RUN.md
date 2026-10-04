@@ -1,6 +1,6 @@
 # Example run
 
-Two real sessions, recorded on 2026-10-04 against the live `bigquery-public-data.thelook_ecommerce`
+Three real sessions, recorded on 2026-10-04 against the live `bigquery-public-data.thelook_ecommerce`
 dataset with Gemini on the free tier. Nothing is edited apart from trimming trailing spaces. The
 questions were piped into the CLI, which is why each one is echoed after the `you>` prompt.
 
@@ -13,10 +13,34 @@ on another day.
 
 **About the model shown.** The header names the first model in the configured list
 (`gemini-3.8-flash`). On the free tier the two larger models allow 20 requests a day each, and that
-quota was largely used up when these sessions were recorded. The first answer came from the second
-model after rate-limit retries, which is why it took 46 seconds; every other answer came from the
-third model, `gemini-3.5-flash-lite`, as the `/trace` output shows. The switch is automatic and
-needs no action from the user.
+quota was largely used up when these sessions were recorded. In sessions 1 and 2 the first answer
+came from the second model after rate-limit retries, which is why it took 46 seconds; every other
+answer came from the third model, `gemini-3.5-flash-lite`, as the `/trace` output shows. In
+session 3 the first model had one request left: it planned the queries for the first question,
+and the third model wrote that answer and the rest. The switch is automatic and needs no action
+from the user. In `/trace`, the `name` of a model step is the first model in the list, and
+`detail` starts with the model that answered.
+
+**When they were recorded.** Sessions 1 and 2 were recorded after the revision that followed the
+client's answers. Session 3 was recorded later, after the fixes that followed the review
+([tracker](TRACKER.md#review-findings)). Those fixes do not change what sessions 1 and 2 show. The
+only one that changes behaviour acts on the last of the eight model calls a question may use, and
+no question in those two sessions used more than four.
+
+**What was checked, and what to read critically.** The numbers in an answer come from SQL; the
+sentences around them are the model's. Every figure in the quarterly report (session 1,
+exchange 6) and every figure in session 3 was checked against the results of its queries, by
+running the stored SQL again. The other answers were read but not checked line by line, and two
+sentences in them are loose:
+
+- Session 1, exchange 2: "more than doubling" describes a rise from $4,441 to $8,503, which is 91%.
+- Session 2, exchange 3: the text gives Quiksilver's monthly range as 8.7% to 12.8%. The table
+  says 8.7% to 13.2%, and the query result agrees with the table.
+
+The model also does small sums of its own in spite of its instructions ("roughly 84% more
+revenue", "roughly 35% fewer registered users"). The ones in these sessions are right. Catching a
+sentence that does not follow from the query results is what the grounding check in
+[DESIGN 3.6](DESIGN.md#36-quality-assurance) is for. It is not built.
 
 ## Session 1: Alice (may see three brands)
 
@@ -265,5 +289,141 @@ you> /stats
 │ deletes_confirmed         │ 1                                         │
 │ deletes_cancelled         │ 1                                         │
 └───────────────────────────┴───────────────────────────────────────────┘
+you> /quit
+```
+
+## Session 3: Carol, the CEO (may see all brands)
+
+The three questions are the brief's own examples.
+
+1. **A multi-step "why" with a comparison.** Four queries, requested together in one step: totals
+   per state, category mix, returns, and demographics. The question assumes that Texas
+   underspends. The data does not show it, and the agent says so instead of explaining a gap that
+   is not there. The analyst examples it was given were `state_spending_gap` and
+   `brand_comparison`; the trace file records them for every model step.
+2. **"Why did our churn rate spike last month?"** The definition of churn, 90 days without an
+   order, comes from the analysts' example and not from the model. The premise is checked first
+   again: there was no spike. The model then kept exploring, one query per step, and one query
+   failed and was corrected. After its seventh call the application told it that its last step had
+   come, which is the `budget` row in the trace, and it answered from what it had. The first time
+   this question was recorded, before that rule existed, it ran eight queries, reached the work
+   limit and showed nothing. That run is why the rule exists
+   ([DESIGN 3.4](DESIGN.md#34-continuous-improvement)).
+3. **Up-to-date revenue by product.** The current month, marked as incomplete.
+
+The jump in new users in September is in the public dataset itself, which is synthetic.
+
+```text
+Retail analysis assistant  BigQuery · gemini-3.8-flash
+Signed in as Carol (CEO). Access: all brands.
+Type /help for commands.
+
+you> Why are users in Texas underspending, and how does that compare to users in California?
+Users in Texas are actually not underspending per customer compared to California; in fact, Texas has a
+slightly higher revenue per purchasing customer ($125.34 vs. $121.59 in California).
+
+The reason total revenue in Texas is lower ($198.9K vs. $295.5K in California) is simply because Texas has a
+smaller customer base (1,587 purchasing customers vs. 2,430 in California).
+
+Key Comparison
+
+
+ Metric                  Texas        California
+ ────────────────────────────────────────────────
+ Total Registered Users  2,366        3,689
+ Purchasing Customers    1,587        2,430
+ Buyer Conversion Rate   67.1%        65.9%
+ Total Revenue           $198,908.40  $295,453.95
+ Revenue per Customer    $125.34      $121.59
+ Orders per Customer     1.42         1.42
+ Items per Order         1.80         1.81
+ Average Item Price      $60.31       $59.33
+
+
+Insights
+
+ • Spend behavior is virtually identical: Once customers in Texas make a purchase, their order frequency,
+   basket size, and average item price match or slightly exceed California's.
+ • Acquisition volume is the sole difference: Texas has roughly 35% fewer registered users and buyers than
+   California, which directly accounts for the lower total regional revenue. Conversion rates from
+   registration to purchase are nearly identical (~67%).
+trace abed55a27a6d · 4 queries · 2 model calls · 9,915 tokens · 18.3s
+
+you> Why did our churn rate spike last month?
+Our churn rate (defined as 90 days passing without an order) did not actually spike last month.
+
+The number of customers reaching the 90-day mark in September 2026 was 2,815, which is nearly identical to
+August 2026 (2,754) and follows a steady upward trend over the preceding months.
+
+However, looking forward, a significant churn spike is coming in December 2026. In September 2026, our new
+user acquisition doubled (to 2,290 new users compared to ~1,050–1,100 per month historically), and active
+buyers surged to 5,465. Because our churn model counts customers 90 days after their last purchase, this
+influx of September buyers will hit the 90-day inactivity threshold in December, leading to a large wave of
+projected churned customers unless retention efforts engage them before then.
+trace 9e5dec636d14 · 7 queries · 8 model calls · 33,596 tokens · 21.3s
+
+you> /trace
+trace 9e5dec636d14 · answered
+┏━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ step   ┃ name             ┃ ms   ┃ detail                                                                  ┃
+┡━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ guard  │ allowed          │ 0    │                                                                         │
+│ llm    │ gemini-3.8-flash │ 1109 │ gemini-3.5-flash-lite · 2735+145 tokens · run_sql                       │
+│ sql    │ run_sql          │ 1971 │ 6 rows · WITH last_order AS ( SELECT user_id, MAX(created_at) AS        │
+│        │                  │      │ last_order_at FROM orders WHERE st…                                     │
+│ llm    │ gemini-3.8-flash │ 1058 │ gemini-3.5-flash-lite · 3027+182 tokens · run_sql                       │
+│ sql    │ run_sql          │ 1805 │ 2 rows · WITH last_order AS ( SELECT user_id, MAX(created_at) AS        │
+│        │                  │      │ last_order_at FROM orders WHERE st…                                     │
+│ llm    │ gemini-3.8-flash │ 1298 │ gemini-3.5-flash-lite · 3272+234 tokens · run_sql                       │
+│ sql    │ run_sql          │ 309  │ syntax: 400 POST https://bigquery.googleapis.com/bigquery/v2/project ·  │
+│        │                  │      │ WITH last_order AS ( SELECT user_id, MAX(created_at) AS last_order_at   │
+│        │                  │      │ FROM orders WHERE st…                                                   │
+│ llm    │ gemini-3.8-flash │ 1201 │ gemini-3.5-flash-lite · 3623+228 tokens · run_sql                       │
+│ sql    │ run_sql          │ 1767 │ 10 rows · WITH last_order AS ( SELECT user_id, MAX(created_at) AS       │
+│        │                  │      │ last_order_at FROM orders WHERE st…                                     │
+│ llm    │ gemini-3.8-flash │ 1202 │ gemini-3.5-flash-lite · 4070+246 tokens · run_sql                       │
+│ sql    │ run_sql          │ 1868 │ 15 rows · WITH last_order AS ( SELECT user_id, MAX(created_at) AS       │
+│        │                  │      │ last_order_at FROM orders WHERE st…                                     │
+│ llm    │ gemini-3.8-flash │ 1017 │ gemini-3.5-flash-lite · 4726+75 tokens · run_sql                        │
+│ sql    │ run_sql          │ 2049 │ 22 rows · SELECT FORMAT_TIMESTAMP('%Y-%m', created_at) AS reg_month,    │
+│        │                  │      │ COUNT(*) AS new_users FROM user…                                        │
+│ llm    │ gemini-3.8-flash │ 1018 │ gemini-3.5-flash-lite · 5160+82 tokens · run_sql                        │
+│ sql    │ run_sql          │ 1948 │ 12 rows · SELECT FORMAT_TIMESTAMP('%Y-%m', created_at) AS order_month,  │
+│        │                  │      │ COUNT(DISTINCT user_id) AS ac…                                          │
+│ budget │ last_step        │ 0    │ {'llm_calls': 7}                                                        │
+│ llm    │ gemini-3.8-flash │ 1633 │ gemini-3.5-flash-lite · 5585+206 tokens · final answer                  │
+└────────┴──────────────────┴──────┴─────────────────────────────────────────────────────────────────────────┘
+All traces are in logs/traces.jsonl
+
+you> What is our up-to-date revenue by product this month? Show the top 10 products.
+Here is our top 10 products by revenue for this month (October 1–4, 2026). As today is October 4, this
+reflects the first few days of the current, incomplete month.
+
+
+ Product Name                                  Brand                 Category           Revenue    Items Sold
+ ────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Catherine Malandrino Women's Skinny Stretch   Catherine Malandrino  Pants & Capris     $1,790.00  2
+ Leather Pant
+ Canada Goose Men's Citadel Parka              Canada Goose          Outerwear & Coats  $1,590.00  2
+ Alpha Industries Rip Stop Short               Alpha Industries      Shorts             $999.00    1
+ Darla                                         Alpha Industries      Outerwear & Coats  $999.00    1
+ Nike Jordan Retro 11 Bred Bootie Socks        Jordan                Socks              $903.00    1
+ The North Face Apex Bionic Soft Shell Jacket  The North Face        Outerwear & Coats  $903.00    1
+ - Men's
+ Diesel Men's Lophophora Leather Jacket        Diesel                Outerwear & Coats  $898.00    1
+ Rebecca Taylor Women's Lace Dress             Rebecca Taylor        Dresses            $790.00    2
+ Canada Goose Women's Solaris                  Canada Goose          Active             $695.00    1
+ The North Face Apex Bionic Soft Shell Jacket  The North Face        Outerwear & Coats  $616.00    2
+ - Women's
+
+
+Insights
+
+ • High-ticket outerwear and apparel lead early October sales, driven by premium brands like Catherine
+   Malandrino, Canada Goose, and Alpha Industries.
+ • Low volume per item: Most top-earning products represent just 1 to 2 units sold so far this month, which is
+   typical for the first few days of a month.
+trace a610e76a521d · 1 queries · 2 model calls · 7,069 tokens · 4.7s
+
 you> /quit
 ```

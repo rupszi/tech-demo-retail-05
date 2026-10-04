@@ -23,7 +23,7 @@ Assessment focus: system design, the technical explanation, and an elegant proto
 | 3 | High-stakes oversight (destructive ops) | **yes** | yes |
 | 4 | Continuous improvement (user and system loops) | no | yes |
 | 5 | Resilience and graceful error handling | **yes** | yes |
-| 6 | Quality assurance | 639 offline tests and 79 against BigQuery | yes |
+| 6 | Quality assurance | 640 offline tests and 79 against BigQuery | yes |
 | 7 | Observability | **yes** | yes |
 | 8 | Agility (persona management) | tone file read on every question | yes |
 
@@ -314,5 +314,5 @@ The fixes follow one rule: the smallest change that settles the finding. This is
 | 12 | Deleted reports are gone for good; ids are not reused; the outcome says permanent | `test_reports.py`, `test_delete_flow.py` (audit trail, messages) | Undo tests |
 | 13 | `test_bigquery_live.py` (opt-in); default backend; startup message | `conftest.py`, `test_smoke.py` | |
 | 14 | A question that exceeds the time limit stops with a message and a trace event | | |
-| 17 | The trace names the analyst examples given to the model, and which limit stopped a question; a business question containing "the story behind" is not blocked | `test_agent.py`, `test_guard.py` | |
+| 17 | The trace names the analyst examples given to the model, and which limit stopped a question; the model is told when its last step has come; a business question containing "the story behind" is not blocked | `test_agent.py`, `test_guard.py` | |
 
