@@ -352,11 +352,11 @@ These decisions were made while building and running the agent. Several of them 
 
 **Why errors are cheap.** A parse error is caught by the SQL gate without touching BigQuery. A semantic error is caught by BigQuery's dry-run, which is free. Only valid queries are billed.
 
-**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 70 seconds for that reason. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is a deadline. Every model call is given the time that is left as its own timeout, the retry logic stops when that time is used up, and a query gets the remaining time as its job timeout. The first version only checked the clock between steps; a review pointed out that a step in which every call hung could then run for many minutes, and the deadline closed that. The time a user takes to answer a confirmation is not counted.
+**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 50 seconds for that reason. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is a deadline. Every model call is given the time that is left as its own timeout, the retry logic stops when that time is used up, and a query gets the remaining time as its job timeout. The first version only checked the clock between steps; a review pointed out that a step in which every call hung could then run for many minutes, and the deadline closed that. The time a user takes to answer a confirmation is not counted.
 
 **Announcing the last step.** The first recording of "Why did our churn rate spike last month?" ran eight queries, one per step, reached the limit on model calls and showed the limit message. The cost was bounded, but the work was thrown away. Now, when one model call is left, every tool result carries an instruction to answer from what has been found and to say what could not be checked. Recorded again, the same question ends in an answer on its eighth call.
 
-**Observed.** In the recorded sessions one of 21 queries failed, on a date function that BigQuery does not support for timestamps. It was corrected on the next attempt and was not billed. Earlier runs showed the same error more often, a wrong alias, and wrong apostrophe escaping, all corrected the same way.
+**Observed.** In the recorded sessions one of 22 queries failed, on a date function that BigQuery does not support for timestamps. It was corrected on the next attempt and was not billed. Earlier runs showed the same error more often, a wrong alias, and wrong apostrophe escaping, all corrected the same way.
 
 **Where.** `Toolbox.run_sql` in `agent/tools.py`. Tests: the "self-correction and its limits" group in `tests/test_agent.py`.
 
@@ -375,7 +375,7 @@ These decisions were made while building and running the agent. Several of them 
 
 **A second chance for a rate-limited model.** When no model answered, the rate-limited one that is due back first gets one more try: at once if its rest ended while the others were being tried, or after a wait of up to a minute. A model that simply failed is not waited for, because it has no time to come back at.
 
-**Observed.** The recorded sessions were answered entirely by the third model in the list, with no action from the user. In one answer that model hit its own per-minute limit and was waited for, for 59 seconds.
+**Observed.** The recorded sessions were answered entirely by the third model in the list, with no action from the user. In two answers that model hit its own per-minute limit and was waited for, for 23 and 27 seconds.
 
 **Where.** `llm/resilient.py`. Tests: `tests/test_llm.py`, with a fake clock so no test waits.
 
@@ -535,5 +535,5 @@ Run on 2026-10-04 with the author's own Google Cloud project. The first six poin
 - With real brands, each restricted profile sees only its own brands, including a brand name containing an apostrophe, which confirms values are escaped correctly.
 - `SELECT * FROM users` on real data returns only the eight safe columns.
 - All seven analyst examples pass the SQL gate, run on BigQuery and find rows, scanning 3 to 10 MB each.
-- Three conversations were recorded with real Gemini and real BigQuery ([EXAMPLE_RUN.md](EXAMPLE_RUN.md)): 14 questions, 12 answered and 2 stopped by the guard as intended, none failed; one of 21 queries failed and was corrected by the agent; a delete was declined and another confirmed.
-- Every figure in the three recorded sessions was checked against the results of its queries by running the stored SQL again. They match. The loose sentences around them are listed at the top of the example run.
+- Three conversations were recorded with real Gemini and real BigQuery ([EXAMPLE_RUN.md](EXAMPLE_RUN.md)): 17 questions, 15 answered and 2 stopped by the guard as intended, none failed; one of 22 queries failed and was corrected by the agent; a delete was declined and another confirmed.
+- Every figure in the three recorded sessions was checked against the results of its queries by running the stored SQL again. They match, apart from two percentages that the model cut off instead of rounding. The sentences around the figures that are wrong are listed at the top of the example run.

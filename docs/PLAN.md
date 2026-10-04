@@ -23,7 +23,7 @@ Assessment focus: system design, the technical explanation, and an elegant proto
 | 3 | High-stakes oversight (destructive ops) | **yes** | yes |
 | 4 | Continuous improvement (user and system loops) | no | yes |
 | 5 | Resilience and graceful error handling | **yes** | yes |
-| 6 | Quality assurance | 762 offline tests and 79 against BigQuery | yes |
+| 6 | Quality assurance | 767 offline tests and 79 against BigQuery | yes |
 | 7 | Observability | **yes** | yes |
 | 8 | Agility (persona management) | tone file read on every question | yes |
 
@@ -310,14 +310,14 @@ The fixes follow one rule: the smallest change that settles the finding. This is
 The points that phase 17 left as they were are closed, the code is commented, the tests are checked for meaning, and the finished repository is reviewed once more.
 
 Code: `agent/graph.py`, `agent/tools.py`, `llm/`, `data/`, `safety/gateway.py`, `cli/app.py`.
-- [ ] The time limit is a deadline: a model call and a query each get the time that is left, and nothing new starts after it
-- [ ] A trace names the model that answered each step
-- [ ] A query requested in the same step as a delete still gets its answer, with the outcome of the delete first and written by the application
-- [ ] Inline comments in every module say why the code is the way it is
-- [ ] The tests are shown to mean something: breaking a rule on purpose makes them fail
-- [ ] All three example sessions recorded again with the final code, and their figures checked
-- [ ] The three review passes that phase 17 did not run are done on the final state, and their findings settled
-- [ ] Full verification: offline tests, lint, BigQuery group, links, diagrams, a fresh clone with `uv` and with `pip`
+- [x] The time limit is a deadline: a model call and a query each get the time that is left, and nothing new starts after it
+- [x] A trace names the model that answered each step
+- [x] A query requested in the same step as a delete still gets its answer, with the outcome of the delete first and written by the application
+- [x] Inline comments in every module say why the code is the way it is
+- [x] The tests are shown to mean something: breaking a rule on purpose makes them fail
+- [x] All three example sessions recorded again with the final code, and their figures checked
+- [x] The three review passes that phase 17 did not run are done on the final state, and their findings settled
+- [x] Full verification: offline tests, lint, BigQuery group, links, diagrams, a fresh clone with `uv` and with `pip`
 
 ### Tests for this revision
 

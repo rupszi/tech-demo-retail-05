@@ -32,7 +32,7 @@ Three ideas shape the design.
 | 3 | High-stakes oversight | **Built and tested** | [3.3](#33-high-stakes-oversight) |
 | 4 | Continuous improvement | Design | [3.4](#34-continuous-improvement) |
 | 5 | Resilience and graceful error handling | **Built and tested** | [3.5](#35-resilience) |
-| 6 | Quality assurance | 762 offline tests and 79 against BigQuery; evaluation design | [3.6](#36-quality-assurance) |
+| 6 | Quality assurance | 767 offline tests and 79 against BigQuery, and a check of the tests themselves; evaluation design | [3.6](#36-quality-assurance) |
 | 7 | Observability | **Built and tested** | [3.7](#37-observability) |
 | 8 | Agility (tone without redeployment) | Tone file read on every question; design for the rest | [3.8](#38-agility-changing-the-tone-without-a-deployment) |
 
@@ -336,7 +336,7 @@ The brief has three requirements here: only analysis questions, no personal data
 
 The three layers in bold are the guarantees. The others reduce cost and noise, or back the guarantees up.
 
-**Only analysis questions.** Obvious cases are stopped by rules before any model call. For the rest, the model is instructed to decline in one sentence without running a query; the example run shows "What is the capital of France?" getting exactly that. This part rests on the model following an instruction, and the rules can be passed by rephrasing, so it is the weakest of the three requirements: a determined user can get an off-topic answer. What they cannot get is data: even a model that ignored every instruction could only run read-only queries on the user's own brands, which the example run also shows.
+**Only analysis questions.** Obvious cases are stopped by rules before any model call. For the rest, the model is instructed to decline in one sentence without running a query; the example run shows "What is the capital of France?" getting exactly that. This part rests on the model following an instruction, and the rules can be passed by rephrasing, so it is the weakest of the three requirements: a determined user can get an off-topic answer. What they cannot get is data: even a model that ignored every instruction could only run read-only queries on the user's own brands. In the example run a query for a brand outside the user's access returns nothing.
 
 **Only the four tables of the brief.** The dataset has more, such as `inventory_items` and `events`. They are out of reach, so questions about stock levels cannot be answered. Adding a table is an entry in the policy and a rule for limiting it to the user's brands.
 
@@ -492,7 +492,7 @@ The brief asks that errors and empty results are detected and corrected before g
 | The query runs out of time | Our own timeout | The job is cancelled and the model is told to narrow the query; the same SQL is not run again |
 | Several queries in one call | SQL gate | The model is told to send one query per call; counts as one failure |
 
-After the retry limit, no further query runs for that question and the model is told to explain plainly what it could not do. In the recorded sessions one of 21 queries failed on real BigQuery and was corrected on the next attempt.
+After the retry limit, no further query runs for that question and the model is told to explain plainly what it could not do. In the recorded sessions one of 22 queries failed on real BigQuery and was corrected on the next attempt.
 
 **Bounded cost and time.**
 
@@ -503,7 +503,7 @@ After the retry limit, no further query runs for that question and the model is 
 - Old result tables are not resent with every turn.
 - BigQuery caps the bytes a query may bill.
 
-Observed over the three recorded sessions: about 8,700 tokens and 2.4 model calls per question on average, about 10 MB scanned per query at most, and a median of 4.4 seconds per answer. The number of queries in a question is not counted on its own: a step may ask for several at once, and what bounds them is the limit on model calls, the time limit and the cap of 1 GB on each.
+Observed over the three recorded sessions: about 8,100 tokens and 2.2 model calls per question on average, about 10 MB scanned per query at most, and a median of 4.0 seconds per answer. The number of queries in a question is not counted on its own: a step may ask for several at once, and what bounds them is the limit on model calls, the time limit and the cap of 1 GB on each.
 
 **How long an answer may take.** The client accepts the assumed response times and allows one to two minutes for long reports. Ordinary questions are answered in seconds. A long report is produced within the same request, with progress shown, and the time limit stops anything that runs longer. No background job is needed.
 
@@ -526,7 +526,7 @@ The prototype does not compute dollars. It applies the limits directly: model ca
 - If no model answered and a rate-limited one is due back within a minute, it is waited for, with a message in the interface, and tried once more. Beyond that, the user is told how long to wait.
 - Content that the provider refuses is not sent to the same model again; an unexpected error inside the SDK counts as that model's failure, and the next model gets its turn.
 
-This was exercised for real: on the free tier the two larger models allow 20 requests a day, and the recorded sessions were answered entirely by the third model without the user doing anything. One answer waited 59 seconds for that model's per-minute limit to clear.
+This was exercised for real: on the free tier the two larger models allow 20 requests a day, and the recorded sessions were answered entirely by the third model without the user doing anything. Two answers waited, 23 and 27 seconds, for that model's per-minute limit to clear.
 
 **Never crashing the interface.** A failing tool returns an error to the model instead of raising. An unexpected exception anywhere in a turn is caught at the session boundary, recorded in the trace with its cause, and turned into a short apology. The conversation continues, and the question that failed is left out of what the model is shown next. Ctrl-C while a question is being worked on drops that question and keeps the chat. A trace that cannot be written does not cost the answer. A wrong value in the settings is reported by name at start. Text that comes from users, the model or an error is never read as terminal formatting.
 
@@ -536,10 +536,10 @@ This was exercised for real: on the free tier the two larger models allow 20 req
 
 **Before deployment.** Five kinds of checks, from cheapest to most expensive. The first four exist in the prototype; the fifth is design.
 
-1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 762 tests that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results.
-2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. The chat loop and its confirmation prompt are run end to end the same way, with typed lines. The Gemini adapter is tested against a stand-in for the SDK client that returns real SDK objects, so what is sent to Gemini and how its answers are read are covered without a network. These are also in the 762.
+1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 767 test cases that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results. About 310 of them are the two query corpora run once for each of the three users.
+2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. The chat loop and its confirmation prompt are run end to end the same way, with typed lines. The Gemini adapter is tested against a stand-in for the SDK client that returns real SDK objects, so what is sent to Gemini and how its answers are read are covered without a network. These are also in the 767.
 3. **The same rules on the real dataset.** A further group of 79 tests runs against BigQuery on request, as the client suggested: the schema, every legitimate query after the gate has rewritten it (as free dry-runs), brand scope and personal data on real data, and every analyst example.
-4. **A check on the tests themselves.** Ninety-five rules were broken on purpose, one at a time, in a copy of the repository: no brand filter, a delete carried out whatever the user answers, the interface passing on the opposite of the answer, and so on. Every one made a test fail. The first run of this check found gaps, which is how the tests for the chat loop and the adapter came to be written.
+4. **A check on the tests themselves.** A script breaks 101 rules on purpose, one at a time, in a copy of the repository: no brand filter, a delete carried out whatever the user answers, the interface passing on the opposite of the answer, and so on. Every one made a test fail. The first run of this check found gaps, which is how the tests for the chat loop and the adapter came to be written.
 5. **Evaluation with the real model.** A fixed set of questions run against the real model and a fixed copy of the data, scored automatically:
    - *Result accuracy.* For questions with a known answer (the golden trios supply them), the result of the assistant's query is compared with the result of the analyst's query. Comparing results, not SQL text, accepts any correct query.
    - *Grounding.* Every figure in an answer must appear in, or follow from, the query results of that turn. This is a mechanical check, and it is the one that would have caught the wrongly added total described in 3.4.
@@ -733,7 +733,7 @@ What is sent to the model: the instructions, the conversation text, and query re
 | Availability and capacity | Targets, to be agreed with the client: 99.5% of questions answered or declined cleanly, and 30 seconds at the 95th percentile for ordinary questions. A few hundred users means tens of conversations at once at most. Cloud Run scales on concurrency, with one instance kept warm in office hours. The real ceiling is model quota, so capacity is bought for the peak |
 | Backup and recovery | Cloud SQL runs with a standby and point-in-time recovery, and a restore is rehearsed. The aim is to be back within an hour and to lose at most five minutes. The Golden bucket has object versioning, and the vector index can be rebuilt from it at any time. The sales data in BigQuery is not ours to back up |
 | Retention | Traces: 90 days in Cloud Logging and a year in BigQuery. Conversation state: 30 days after the last message. Saved reports: until their owner deletes them. The audit log: as long as the company's policy requires |
-| Cost | Model usage is the main variable cost: about 9,000 tokens per question in the recorded sessions, most of it input, which the price table of 3.5 turns into dollars. BigQuery is small next to it, at about 10 MB scanned per query. The fixed costs are one small Cloud SQL instance with its standby and one warm Cloud Run instance |
+| Cost | Model usage is the main variable cost: about 8,000 tokens per question in the recorded sessions, most of it input, which the price table of 3.5 turns into dollars. BigQuery is small next to it, at about 10 MB scanned per query. The fixed costs are one small Cloud SQL instance with its standby and one warm Cloud Run instance |
 
 ---
 

@@ -7,7 +7,7 @@ Built for the OpsFleet technical assignment. The design is in [docs/DESIGN.md](d
 What the prototype does:
 
 - **Answers questions from data.** It writes and runs SQL itself, across several queries when a question needs it, and corrects its own SQL when a query fails.
-- **Keeps each user to their own brands.** Every query is rewritten in code so a user only ever sees the brands their token grants. The CEO sees all; a user with no brand scope sees nothing.
+- **Keeps each user to their own brands.** Every query is rewritten in code so a user only ever sees the products and sales of the brands their token grants. The CEO sees all; a user with no brand scope sees nothing. (An order that also contains other brands is visible with the user's own items only; see [D-08](docs/DECISIONS.md#d-08-per-user-brand-scope-is-applied-by-rewriting-table-references).)
 - **Never shows personal data.** Names, emails, addresses, postal codes and coordinates cannot be queried at all; customers appear as IDs.
 - **Asks before deleting.** Deleting saved reports needs the user's confirmation, which the model cannot give. Deleting is permanent, and the confirmation says so.
 - **Survives failures.** Bad SQL, empty results, rate limits and outages are handled without crashing or running up cost.
@@ -58,7 +58,6 @@ Python 3.12 or 3.13 is required.
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -e . --no-deps
 cp .env.example .env
 retail-agent --user alice
 ```
@@ -110,6 +109,7 @@ Commands inside the chat:
 | `/reports` | List your saved reports |
 | `/report <id>` | Show a saved report |
 | `/trace` | Show the steps behind the last answer |
+| `/trace <id>` | Show the steps behind an earlier answer of yours, by the trace id printed under it |
 | `/stats` | Show agent metrics across all recorded questions |
 | `/help`, `/quit` | Help, leave |
 
@@ -121,22 +121,24 @@ Three complete recorded sessions against BigQuery are in [docs/EXAMPLE_RUN.md](d
 you> Show me their email addresses
 I can't show personal details such as names, emails or addresses. I can identify customers by their customer
 ID and show their age, gender and location.
-trace 05b4e323ca77 · 0 queries · 0 model calls · 0 tokens · 0.0s
+trace f4f650e648fe · 0 queries · 0 model calls · 0 tokens · 0.0s
+
+…
 
 you> Delete all reports mentioning revenue
 About to delete 1 saved report(s)
-┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ id ┃ title                                ┃
-┡━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│  1 │ Q3 2026 Quarterly Performance Report │
-└────┴──────────────────────────────────────┘
+┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ id ┃ title                      ┃
+┡━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│  1 │ Q3 2026 Performance Report │
+└────┴────────────────────────────┘
 Delete these reports permanently? This cannot be undone [y/n] (n): y
 Deleted 1 report(s):
 
- • Q3 2026 Quarterly Performance Report
+ • Q3 2026 Performance Report
 
 This cannot be undone.
-trace 3375d3b098be · 0 queries · 1 model calls · 3,560 tokens · 0.8s
+trace e47d722abfa7 · 0 queries · 1 model calls (gemini-3.5-flash-lite) · 3,913 tokens · 0.7s
 
 you> /reports
 You have no saved reports.
@@ -184,7 +186,7 @@ Everything is set in `.env`; [.env.example](.env.example) lists every option. Th
 
 ### A note on the Gemini free tier
 
-On the free tier the two larger models allow 20 requests a day each (checked on 2026-10-04). When a model's quota is used up the assistant moves to the next one in `GEMINI_MODELS` by itself, so it keeps working on the lite model for the rest of the day, with somewhat less polished answers. If every model is briefly rate-limited it waits, up to a minute, and says so. With a paid key the first model answers everything.
+On the free tier the two larger models allow 20 requests a day each (checked on 2026-10-04). When a model's quota is used up the assistant moves to the next one in `GEMINI_MODELS` by itself, so it keeps working on the lite model for the rest of the day, with somewhat less polished answers. If every model is briefly rate-limited it waits, up to a minute, and says so; that wait counts towards the time limit of the question. The header lists the models in order, and the line under each answer names the one that answered. With a paid key the first model answers everything.
 
 ## Tests
 
@@ -193,7 +195,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-762 tests run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network. They include the chat loop with its confirmation prompt, run end to end, and the Gemini adapter against a stand-in client.
+767 test cases run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network, and they do not read your `.env`. About 310 of them are the two query corpora, hostile and legitimate, run once for each of the three users. The rest include the chat loop with its confirmation prompt, run end to end, and the Gemini adapter against a stand-in client.
 
 A second group of 79 tests checks the same rules against the real BigQuery dataset. It needs the Google Cloud setup above and takes about a minute:
 
@@ -203,7 +205,7 @@ uv run pytest -m bigquery
 
 Most of it is dry-runs, which are free. The rest scans about 70 MB.
 
-To check the tests themselves, a script breaks 95 rules in a copy of the code, one at a time, and reports any break that no test notices. It takes about five minutes:
+To check the tests themselves, a script breaks 101 rules in a copy of the code, one at a time, and reports any break that no test notices. It takes about five minutes:
 
 ```bash
 uv run python tests/mutation_check.py
@@ -223,7 +225,7 @@ src/retail_agent/
   cli/             the chat interface
 config/            sample token payloads for the demo users, and the tone file
 golden_bucket/     sample analyst examples (question, SQL, report)
-tests/             762 offline tests, 79 against BigQuery, and a check of the tests themselves
+tests/             767 offline tests, 79 against BigQuery, and a check of the tests themselves
 docs/              design, decisions, example run, plan, tracker, client questions
 ```
 
