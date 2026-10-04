@@ -16,8 +16,8 @@ import pandas as pd
 
 from retail_agent.data.schema import DATASET, TABLES, split_dataset
 
-END_DATE = datetime(2025, 9, 30)
-START_DATE = datetime(2023, 1, 1)
+END_DATE = datetime(2025, 9, 30)  # fixed default, so tests are reproducible
+HISTORY_DAYS = 1000
 
 BRANDS = {
     "Alder & Finch": "Women",
@@ -116,9 +116,15 @@ _DUCKDB_TYPES = {
 
 
 def generate(
-    seed: int = 42, n_users: int = 600, n_products: int = 90, n_orders: int = 2500
+    seed: int = 42,
+    end_date: datetime = END_DATE,
+    n_users: int = 600,
+    n_products: int = 90,
+    n_orders: int = 2500,
 ) -> dict[str, pd.DataFrame]:
+    """Orders cover the `HISTORY_DAYS` up to `end_date`."""
     rng = random.Random(seed)
+    start_date = end_date - timedelta(days=HISTORY_DAYS)
 
     # users
     loc_weights = [w for *_, w in LOCATIONS]
@@ -127,9 +133,9 @@ def generate(
         state, city, country, _ = rng.choices(LOCATIONS, weights=loc_weights)[0]
         first, last = rng.choice(FIRST), rng.choice(LAST)
         created = (
-            START_DATE
+            start_date
             - timedelta(days=rng.randint(0, 365))
-            + timedelta(days=rng.randint(0, (END_DATE - START_DATE).days - 30))
+            + timedelta(days=rng.randint(0, (end_date - start_date).days - 30))
         )
         users.append(
             {
@@ -182,8 +188,8 @@ def generate(
     user_created = dict(zip(users_df["id"], users_df["created_at"], strict=True))
     user_gender = dict(zip(users_df["id"], users_df["gender"], strict=True))
     user_weights = [8 if rng.random() < 0.05 else 1 for _ in range(n_users)]
-    days = (END_DATE - START_DATE).days
-    day_weights = [MONTH_WEIGHT[(START_DATE + timedelta(days=d)).month] for d in range(days + 1)]
+    days = (end_date - start_date).days
+    day_weights = [MONTH_WEIGHT[(start_date + timedelta(days=d)).month] for d in range(days + 1)]
 
     orders, items = [], []
     item_id = 1
@@ -191,11 +197,11 @@ def generate(
         uid = rng.choices(range(1, n_users + 1), weights=user_weights)[0]
         offset = rng.choices(range(days + 1), weights=day_weights)[0]
         created = max(
-            START_DATE + timedelta(days=offset, seconds=rng.randint(0, 86399)),
+            start_date + timedelta(days=offset, seconds=rng.randint(0, 86399)),
             user_created[uid] + timedelta(days=1),
         )
-        if created > END_DATE:
-            created = END_DATE - timedelta(seconds=rng.randint(0, 86399))
+        if created > end_date:
+            created = end_date - timedelta(seconds=rng.randint(0, 86399))
         in_texas = user_state[uid] == "Texas"
         n_items = rng.choice([1, 1, 2]) if in_texas else rng.choice([1, 1, 2, 2, 3, 4])
         status = rng.choices(STATUSES, weights=STATUS_WEIGHTS)[0]
@@ -263,14 +269,21 @@ def write_duckdb(
         con.execute(f"INSERT INTO {namespace}.{table} SELECT * FROM df")
 
 
-def build_mock_db(path: str | Path, dataset: str = DATASET, seed: int = 42) -> Path:
-    """Write the mock database file. Tables live in a schema named after the BigQuery dataset."""
+def build_mock_db(
+    path: str | Path, dataset: str = DATASET, seed: int = 42, end_date: datetime | None = None
+) -> Path:
+    """Write the mock database file. Tables live in a schema named after the BigQuery dataset.
+
+    Orders run up to today by default, like the real dataset, so "last month" means the same thing
+    locally and in BigQuery.
+    """
+    end_date = end_date or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.unlink(missing_ok=True)
     con = duckdb.connect(str(path))
     try:
-        write_duckdb(generate(seed=seed), con, split_dataset(dataset)[1])
+        write_duckdb(generate(seed=seed, end_date=end_date), con, split_dataset(dataset)[1])
     finally:
         con.close()
     return path

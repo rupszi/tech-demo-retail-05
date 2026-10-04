@@ -40,3 +40,15 @@ def test_planted_patterns(frames):
     )
     ret = df.assign(r=df["status"] == "Returned").groupby("brand")["r"].mean()
     assert ret["Driftline"] > 2 * ret.drop("Driftline").mean()
+
+
+def test_orders_end_at_the_requested_date():
+    from datetime import datetime, timedelta
+
+    from retail_agent.data.mock import HISTORY_DAYS
+
+    end = datetime(2030, 6, 15)
+    orders = generate(seed=1, end_date=end)["orders"]
+    assert orders["created_at"].max() <= end
+    assert orders["created_at"].max() > end - timedelta(days=14)
+    assert orders["created_at"].min() >= end - timedelta(days=HISTORY_DAYS)
