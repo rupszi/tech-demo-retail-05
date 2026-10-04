@@ -34,14 +34,24 @@ Updated in the same commit as the work it describes. Gate definitions are in [PL
 
 ## Open questions for the client
 
-| Question | Working assumption | Answer |
-|---|---|---|
-| Where does user identity come from? | SSO/OIDC | |
-| Expected scale? | Tens to hundreds of users | |
-| Does a Saved Reports store exist? | No | |
-| What defines "products related to him"? | Allowed brands/departments | |
-| Which email provider? | Undecided, design only | |
-| Data residency constraints? | Single region, US | |
+The full wording, with the assumption used for each, is in [QUESTIONS.md](QUESTIONS.md). None of them blocks the work: each has an assumption the project is built on until an answer arrives.
+
+**Sent to the client:** not yet.
+
+| # | Topic | Working assumption | Answer |
+|---|---|---|---|
+| 1 | Which products a user may analyse | A list of brands and/or departments per user | |
+| 2 | What counts as personal data | Names, email, address, postal code and coordinates are blocked; customers shown by ID; demographics allowed per customer | |
+| 3 | Saved Reports library | Built here; text match on title and content; soft delete; own reports only | |
+| 4 | Confirmation before deleting | One explicit confirmation listing exactly what will be deleted | |
+| 5 | Golden Knowledge bucket | One JSON document per trio; hundreds to thousands; analyst approves additions | |
+| 6 | Local test data | Tests use a local mock; real runs use BigQuery | |
+| 7 | Identity and permissions | Single sign-on and a central permissions service | |
+| 8 | Scale and response time | Tens to hundreds of users; 10 to 30 seconds per analysis | |
+| 9 | Channels and integrations | Web chat over an API; email as a replaceable tool | |
+| 10 | Who changes the assistant's tone | Named non-developers, versioned changes, rollback | |
+| 11 | Data residency and compliance | Single region (US); Vertex AI in production | |
+| 12 | Cost limits | A cap per question on model usage and data scanned | |
 
 ## Log
 
@@ -55,3 +65,4 @@ Updated in the same commit as the work it describes. Gate definitions are in [PL
 | 2026-10-04 | Phase 2 complete: SQL gate, per-user scoping, query gateway, PII scrubber, input guard |
 | 2026-10-04 | Gate output and scoping verified on real BigQuery (dry-runs and a few small queries); separate profile file added for real brands |
 | 2026-10-04 | Decision log added (`docs/DECISIONS.md`) |
+| 2026-10-04 | Client questions written up with working assumptions (`docs/QUESTIONS.md`) |

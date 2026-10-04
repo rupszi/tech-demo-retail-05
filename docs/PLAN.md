@@ -37,6 +37,8 @@ Assessment focus: system design, the technical explanation, and an elegant proto
 
 ## 2. Assumptions (to confirm with the client)
 
+The questions sent to the client, with the full assumption for each, are in [QUESTIONS.md](QUESTIONS.md). The table below is the summary. None of these blocks the work.
+
 | Topic | Assumption used |
 |---|---|
 | Identity | SSO/OIDC at the gateway in production; the prototype uses mock user profiles (`--user`) |
@@ -44,6 +46,8 @@ Assessment focus: system design, the technical explanation, and an elegant proto
 | Saved Reports store | Does not exist yet, so we build one (SQLite locally, managed database in production) |
 | "Products related to him" | Each user has an allowed set of brands and/or departments |
 | PII display | Pseudonymous `user_id` and aggregated demographics may be shown; names, emails, addresses, coordinates never |
+| Report deletion | One explicit confirmation listing exactly what will be deleted; soft delete with undo; own reports only |
+| Golden Bucket | One JSON document per trio; analyst approval before anything is added; a few local sample trios in the prototype |
 | Email | Design only, behind a tool interface; provider not chosen |
 | Data residency | Single region matching the public dataset (`US`) |
 

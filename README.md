@@ -11,6 +11,7 @@ Data analysis chat assistant for a retail company's executive team. Executives a
 | [docs/PLAN.md](docs/PLAN.md) | Understanding of the brief, scope, assumptions, deliverables, phases and exit gates |
 | [docs/TRACKER.md](docs/TRACKER.md) | Live progress tracker, updated with every commit |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Decision log: what was decided, why, what else was considered, and how it is verified |
+| [docs/QUESTIONS.md](docs/QUESTIONS.md) | Questions for the client, and the assumption used for each until it is answered |
 | `docs/DESIGN.md` | Production HLD and technical explanation (phase 8) |
 
 ## Setup and example run
