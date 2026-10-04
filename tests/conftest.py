@@ -41,6 +41,7 @@ def settings(tmp_path):
 
     root = Path(__file__).parents[1]
     return Settings(
+        data_backend="duckdb",
         reports_db_path=str(tmp_path / "reports.sqlite"),
         trace_dir=str(tmp_path / "logs"),
         persona_path=str(root / "config" / "persona.md"),

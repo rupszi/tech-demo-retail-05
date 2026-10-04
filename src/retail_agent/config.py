@@ -28,8 +28,8 @@ class Settings:
         "gemini-3.5-flash-lite",
     )
     gcp_location: str = "global"
-    # data
-    data_backend: str = "duckdb"
+    # data: "bigquery" is the real dataset; "duckdb" is an offline mock with the same tables
+    data_backend: str = "bigquery"
     duckdb_path: str = "data/mock.duckdb"
     gcp_project_id: str | None = None
     bq_dataset: str = DATASET

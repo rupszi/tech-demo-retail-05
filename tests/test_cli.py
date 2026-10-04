@@ -38,3 +38,36 @@ def test_the_confirmation_names_the_reports_and_says_it_is_permanent(monkeypatch
     assert "Q1 review" in shown and "permanently" in shown and "cannot be undone" in shown
     monkeypatch.setattr("builtins.input", lambda *_: "y")
     assert _confirm_delete(request, Console()) is True
+
+
+def test_bigquery_is_the_default_and_a_missing_setup_names_the_offline_option(capsys, monkeypatch):
+    from retail_agent.cli import app
+
+    seen = {}
+
+    def no_credentials(settings):
+        seen["backend"] = settings.data_backend
+        raise RuntimeError("Your default credentials were not found.")
+
+    monkeypatch.delenv("DATA_BACKEND", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(app, "create_backend", no_credentials)
+    assert main(["--user", "alice"]) == 1
+    out = " ".join(capsys.readouterr().out.split())
+    assert seen["backend"] == "bigquery"
+    assert "default credentials were not found" in out and "--backend duckdb" in out
+    assert "Traceback" not in out
+
+
+def test_a_missing_model_key_is_reported_without_the_bigquery_hint(capsys, monkeypatch):
+    from retail_agent.cli import app
+    from retail_agent.llm import LLMError
+
+    def no_key(settings):
+        raise LLMError("GEMINI_API_KEY is not set. Add it to your .env file.", transient=False)
+
+    monkeypatch.setenv("DATA_BACKEND", "duckdb")
+    monkeypatch.setattr(app, "create_client", no_key)
+    assert main(["--user", "alice"]) == 1
+    out = capsys.readouterr().out
+    assert "GEMINI_API_KEY is not set" in out and "--backend duckdb" not in out

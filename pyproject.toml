@@ -36,7 +36,14 @@ packages = ["src/retail_agent"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# The default run is offline. The BigQuery group is opt-in: uv run pytest -m bigquery
+addopts = "-m 'not bigquery'"
+markers = ["bigquery: runs against the real BigQuery dataset and needs Google Cloud credentials"]
+filterwarnings = [
+    # Results come back as DataFrames through google-cloud-bigquery, as in the runner supplied with
+    # the brief. The library has announced that this will be deprecated in favour of pandas-gbq.
+    "ignore:Retrieving DataFrames via google-cloud-bigquery is deprecated:PendingDeprecationWarning",
+]
 
 [tool.ruff]
 line-length = 100

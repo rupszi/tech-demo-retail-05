@@ -18,7 +18,7 @@ from rich.table import Table
 from retail_agent.agent import ChatSession, TurnResult
 from retail_agent.config import Settings
 from retail_agent.data import create_backend
-from retail_agent.llm import ResilientLLM
+from retail_agent.llm import LLMError, ResilientLLM
 from retail_agent.llm.gemini import GeminiLLM, create_client
 from retail_agent.observability import Tracer, compute_stats, read_traces
 from retail_agent.safety import load_profiles
@@ -44,8 +44,12 @@ _PROGRESS = {
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="retail-agent", description="Retail data analysis chat")
-    parser.add_argument("--user", help="user id from the profiles file (default: the first one)")
-    parser.add_argument("--backend", choices=["duckdb", "bigquery"], help="override DATA_BACKEND")
+    parser.add_argument("--user", help="which sample user to sign in as (default: the first one)")
+    parser.add_argument(
+        "--backend",
+        choices=["bigquery", "duckdb"],
+        help="data source: bigquery (default) or duckdb, an offline mock",
+    )
     parser.add_argument("--list-users", action="store_true", help="show the available users")
     args = parser.parse_args(argv)
     console = Console()
@@ -55,19 +59,25 @@ def main(argv: list[str] | None = None) -> int:
         settings = replace(settings, data_backend=args.backend)
     try:
         profiles = load_profiles(settings.profiles_path)
-        if args.list_users:
-            for p in profiles.values():
-                console.print(f"[bold]{p.user_id}[/]  {p.name}  [dim]({p.describe_scope()})[/]")
-            return 0
-        profile = profiles[args.user or next(iter(profiles))]
-        backend = create_backend(settings)
-        client = create_client(settings)
-    except KeyError:
-        console.print(f"[red]Unknown user {args.user!r}.[/] Known users: {', '.join(profiles)}")
+    except (OSError, ValueError, KeyError) as e:
+        console.print(f"[red]Could not read the user profiles:[/] {e}")
         return 1
+    if args.list_users:
+        for p in profiles.values():
+            console.print(f"[bold]{p.user_id}[/]  {p.name}  [dim]({p.describe_scope()})[/]")
+        return 0
+    user = args.user or next(iter(profiles))
+    if user not in profiles:
+        console.print(f"[red]Unknown user {user!r}.[/] Known users: {', '.join(profiles)}")
+        return 1
+    profile = profiles[user]
+    try:
+        client = create_client(settings)
+        backend = create_backend(settings)
+        backend.dry_run("SELECT 1")  # free; fails now rather than in the middle of a question
     except Exception as e:  # noqa: BLE001 - startup problems are reported, not dumped as a trace
         console.print(f"[red]Could not start:[/] {e}")
-        console.print("[dim]See the setup section of the README.[/]")
+        console.print(f"[dim]{_startup_hint(settings, e)}[/]")
         return 1
 
     llm = ResilientLLM([GeminiLLM(client, model) for model in settings.gemini_models])
@@ -124,6 +134,15 @@ def main(argv: list[str] | None = None) -> int:
             result = run(lambda decision=approved: session.confirm(decision))
         console.print(Markdown(result.answer))
         _footer(result, console)
+
+
+def _startup_hint(settings: Settings, error: Exception) -> str:
+    if isinstance(error, LLMError) or settings.data_backend != "bigquery":
+        return "See the setup section of the README."
+    return (
+        "BigQuery needs Google Cloud credentials and GCP_PROJECT_ID in .env (see the README). "
+        "To try the assistant on local mock data without a cloud account, add --backend duckdb."
+    )
 
 
 def _confirm_delete(request: dict, console: Console) -> bool:

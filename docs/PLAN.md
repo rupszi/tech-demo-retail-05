@@ -272,10 +272,10 @@ Code: `reports/store.py`, `agent/graph.py`, `agent/session.py`, `agent/prompts.p
 
 ### Phase 13: BigQuery by default, and a BigQuery test group
 Code: `config.py`, `cli/app.py`, `.env.example`, `pyproject.toml`, `tests/test_bigquery_live.py`.
-- [ ] `DATA_BACKEND` defaults to `bigquery`; `--backend duckdb` runs offline on the mock
-- [ ] A missing BigQuery setup gives a clear message that names the offline option
-- [ ] `uv run pytest` stays offline and leaves the BigQuery group out; `uv run pytest -m bigquery` runs it
-- [ ] The BigQuery group passes: schema match, the valid corpus as dry-runs for every profile, scoping and personal data on real data, a bare table name refused, every analyst example runs
+- [x] `DATA_BACKEND` defaults to `bigquery`; `--backend duckdb` runs offline on the mock
+- [x] A missing BigQuery setup gives a clear message that names the offline option
+- [x] `uv run pytest` stays offline and leaves the BigQuery group out; `uv run pytest -m bigquery` runs it
+- [x] The BigQuery group passes: schema match, the valid corpus as dry-runs for every profile, scoping and personal data on real data, a bare table name refused, every analyst example runs
 
 ### Phase 14: Time limit per question
 Code: `config.py`, `agent/graph.py`.
