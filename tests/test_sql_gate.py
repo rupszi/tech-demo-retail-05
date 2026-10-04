@@ -36,9 +36,29 @@ def test_only_fixable_mistakes_are_retryable(profiles):
     retryable = {"syntax", "empty", "unknown_table", "pii_column", "with_shadows_table",
                  "unsupported_table_clause"}  # fmt: skip
     for sql, code in REJECTED:
+        if code == "multiple_statements":
+            continue  # depends on what the statements are: see the next test
         with pytest.raises(SqlRejected) as e:
             check(sql, profiles["alice"])
         assert e.value.retryable == (code in retryable), sql
+
+
+@pytest.mark.parametrize(
+    ("sql", "retryable"),
+    [
+        ("SELECT 1; SELECT 2", True),  # two queries: an honest way to save a step
+        ("SELECT COUNT(*) FROM orders; WITH u AS (SELECT 1 AS x) SELECT x FROM u;", True),
+        ("SELECT 1; DROP TABLE users", False),
+        ("DECLARE x INT64; SELECT 1", False),
+        ("BEGIN SELECT 1; END", False),
+        ("CREATE TEMP FUNCTION f() AS (1); SELECT f()", False),
+    ],
+)
+def test_several_statements_may_be_retried_only_if_every_one_is_a_query(sql, retryable, profiles):
+    with pytest.raises(SqlRejected) as e:
+        check(sql, profiles["alice"])
+    assert e.value.code == "multiple_statements" and e.value.retryable is retryable
+    assert "own run_sql call" in e.value.message
 
 
 @pytest.mark.parametrize("column", sorted(PII_COLUMNS))

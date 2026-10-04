@@ -114,6 +114,21 @@ def test_sql_error_is_fed_back_and_corrected(chat):
     assert result.trace["sql_errors"] == 1
 
 
+def test_two_queries_in_one_call_are_an_honest_mistake_that_can_be_corrected(chat):
+    """Seen in a real run: the model saved a step by sending two queries at once."""
+    users = "SELECT COUNT(*) AS n FROM users"
+    session = chat(
+        says("", call("run_sql", sql=f"{COUNT}; {users}")),
+        says("", call("run_sql", "c1", sql=COUNT), call("run_sql", "c2", sql=users)),
+        says("Both counted."),
+    )
+    result = session.ask("How many orders and how many customers?")
+    assert result.answer == "Both counted." and result.outcome == "answered"
+    refused = tool_results(session, 1)[0]
+    assert "own run_sql call" in refused["error"] and refused["attempts_left"] == 2
+    assert [s.get("error") for s in sql_steps(result)] == ["multiple_statements", None, None]
+
+
 def test_gives_up_after_the_retry_limit_without_running_more_queries(chat):
     bad = says("", call("run_sql", sql="SELECT nope FROM orders"))
     session = chat(bad, bad, bad, bad, says("I could not complete this analysis."))

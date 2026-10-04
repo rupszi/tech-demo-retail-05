@@ -94,7 +94,15 @@ def _parse_single_select(sql: str) -> exp.Expression:
     if not statements:
         raise SqlRejected("empty", "No SQL statement was provided.", True)
     if len(statements) > 1:
-        raise SqlRejected("multiple_statements", "Only a single statement is allowed.", False)
+        # Several queries in one call is an honest way to save a step: the model is told to
+        # send them one at a time and may try again. If anything other than a query is among
+        # them (SELECT 1; DROP TABLE ...), it is not an honest mistake and the attempts end.
+        only_queries = all(isinstance(s, exp.Query) for s in statements)
+        raise SqlRejected(
+            "multiple_statements",
+            "Only a single statement is allowed. Run each query in its own run_sql call.",
+            only_queries,
+        )
     tree = statements[0]
     # A Query is a SELECT, a set operation such as UNION, or either of them under a WITH clause.
     if not isinstance(tree, exp.Query):
