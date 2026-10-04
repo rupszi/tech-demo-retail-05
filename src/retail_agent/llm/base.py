@@ -52,13 +52,22 @@ class LLMError(Exception):
     """A model call failed.
 
     `transient` means the same request may succeed if tried again. `retry_after` is how long the
-    provider asked us to wait, when it said so (rate limits do).
+    provider asked us to wait, when it said so (rate limits do). `auth` means the provider
+    refused the API key: waiting or trying another model cannot help, the user must fix the key.
     """
 
-    def __init__(self, message: str, *, transient: bool, retry_after: float | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        transient: bool,
+        retry_after: float | None = None,
+        auth: bool = False,
+    ):
         super().__init__(message)
         self.transient = transient
         self.retry_after = retry_after
+        self.auth = auth
 
 
 class LLMUnavailable(LLMError):
@@ -67,8 +76,8 @@ class LLMUnavailable(LLMError):
     This is the one model error the agent handles: it becomes a plain message to the user.
     """
 
-    def __init__(self, message: str, retry_after: float | None = None):
-        super().__init__(message, transient=True, retry_after=retry_after)
+    def __init__(self, message: str, retry_after: float | None = None, auth: bool = False):
+        super().__init__(message, transient=True, retry_after=retry_after, auth=auth)
 
 
 class LLM(Protocol):

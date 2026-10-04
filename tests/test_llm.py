@@ -207,3 +207,11 @@ def test_messages_are_converted_to_gemini_contents():
     assert [c.role for c in contents] == ["user", "model", "user", "user"]
     responses = contents[2].parts
     assert [p.function_response.id for p in responses] == ["a", "b"]  # grouped in one turn
+
+
+def test_a_refused_key_is_reported_as_such_when_every_model_fails():
+    refused = LLMError("400 API key not valid", transient=False, auth=True)
+    llm, sleeps = resilient(ScriptedLLM(refused), ScriptedLLM(refused))
+    with pytest.raises(LLMUnavailable) as caught:
+        llm.generate("s", [], [])
+    assert caught.value.auth is True and sleeps == []  # nothing was retried or waited for

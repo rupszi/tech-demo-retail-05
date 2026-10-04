@@ -33,7 +33,7 @@ Three ideas shape the design.
 | 3 | High-stakes oversight | **Built and tested** | [3.3](#33-high-stakes-oversight) |
 | 4 | Continuous improvement | Design | [3.4](#34-continuous-improvement) |
 | 5 | Resilience and graceful error handling | **Built and tested** | [3.5](#35-resilience) |
-| 6 | Quality assurance | 773 offline tests and 79 against BigQuery, and a check of the tests themselves; evaluation design | [3.6](#36-quality-assurance) |
+| 6 | Quality assurance | 781 offline tests and 79 against BigQuery, and a check of the tests themselves; evaluation design | [3.6](#36-quality-assurance) |
 | 7 | Observability | **Built and tested**; the trace keeps no model text or tool results, see 3.7 | [3.7](#37-observability) |
 | 8 | Agility (tone without redeployment) | Tone file read on every question; design for the rest | [3.8](#38-agility-changing-the-tone-without-a-deployment) |
 
@@ -417,8 +417,8 @@ This was exercised for real: on the free tier the two larger models allow 20 req
 
 **Before deployment.** Five kinds of checks, from cheapest to most expensive. The first four exist in the prototype; the fifth is design.
 
-1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 773 test cases that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results. About 310 of them are the two query corpora run once for each of the three users.
-2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. The chat loop and its confirmation prompt are run end to end the same way, with typed lines. The Gemini adapter is tested against a stand-in for the SDK client that returns real SDK objects, so what is sent to Gemini and how its answers are read are covered without a network. These are also in the 773.
+1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 781 test cases that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results. About 310 of them are the two query corpora run once for each of the three users.
+2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. The chat loop and its confirmation prompt are run end to end the same way, with typed lines. The Gemini adapter is tested against a stand-in for the SDK client that returns real SDK objects, so what is sent to Gemini and how its answers are read are covered without a network. These are also in the 781.
 3. **The same rules on the real dataset.** A further group of 79 tests runs against BigQuery on request, as the client suggested: the schema, every legitimate query after the gate has rewritten it (as free dry-runs), brand scope and personal data on real data, and every analyst example.
 4. **A check on the tests themselves.** A script breaks 101 rules on purpose, one at a time, in a copy of the repository: no brand filter, a delete carried out whatever the user answers, the interface passing on the opposite of the answer, and so on. Every one made a test fail. The first run of this check found gaps, which is how the tests for the chat loop and the adapter came to be written.
 5. **Evaluation with the real model.** A fixed set of questions run against the real model and a fixed copy of the data, scored automatically:
@@ -568,6 +568,7 @@ Around the gate:
 | Model timeout or server error | Error class | Backoff and retry, then next model | "The model is busy, retrying" while it works |
 | Model rate limit | Error with a wait time | Wait if short, otherwise rest it and use the next model | Usually nothing |
 | Every model unavailable | All resting or failed | Wait up to a minute for a rate-limited one, else stop | How long to wait before trying again |
+| The API key is refused | Error class: the provider says the key is not valid | No retry and no waiting, because every model fails the same way | "Check `GEMINI_API_KEY` in your `.env` file", not "try again" |
 | Work limit for one question | Call and token counters | The model is told when its last step has come; past the limit, stop | An answer from what was found; or a request to narrow or split the question |
 | Time limit for one question | A deadline given to every model call and query | The call in progress times out; nothing new starts | A request to narrow or split the question, naming the time limit |
 | Tool crashes | Exception caught in the tool step | Error result to the model | An explanation that it did not work |

@@ -42,6 +42,10 @@ MSG_UNAVAILABLE = (
     "I can't reach the language model right now. Nothing was lost; please try again in a moment."
 )
 MSG_RATE_LIMITED = "The language model's usage limit has been reached. Please try again in {wait}."
+MSG_AUTH = (
+    "The language model refused the API key. Check GEMINI_API_KEY in your .env file, "
+    "then start the assistant again."
+)
 MSG_TIME = (
     "I stopped because this question passed the time limit ({limit}). "
     "Please narrow it or split it into smaller steps."
@@ -219,6 +223,8 @@ def build_graph(deps: AgentDeps):
             used = time_used(state)
             if used >= settings.turn_time_budget_s:  # the deadline cut the retries short
                 return out_of_time(used)
+            if failure.auth:  # waiting does not help: the key has to be fixed
+                return finish(MSG_AUTH, "failed")
             if failure.retry_after:  # every model is rate-limited: say how long to wait
                 wait = _human_duration(failure.retry_after)
                 return finish(MSG_RATE_LIMITED.format(wait=wait), "failed")

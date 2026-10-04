@@ -88,7 +88,9 @@ class ResilientLLM:
         wait = self._shortest_rest()
         # `retry_after` lets the caller tell the user how long the rate limit lasts.
         raise LLMUnavailable(
-            f"All models failed. Last error: {self._last_error}", retry_after=wait or None
+            f"All models failed. Last error: {self._last_error}",
+            retry_after=wait or None,
+            auth=bool(self._last_error and self._last_error.auth),
         ) from self._last_error
 
     def _rest_left(self, model: LLM) -> float:

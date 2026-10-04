@@ -73,6 +73,7 @@ class GeminiLLM:
                 f"{self.name}: {e}",
                 transient=e.code in _TRANSIENT_CODES,
                 retry_after=_retry_after(e),
+                auth=_is_auth_error(e),
             ) from e
         except (httpx.HTTPError, ConnectionError, TimeoutError) as e:
             raise LLMError(f"{self.name}: network error: {e}", transient=True) from e
@@ -129,6 +130,12 @@ def _timeout_ms(time_left: float | None) -> int:
     if time_left is None:
         return _TIMEOUT_MS
     return int(min(_TIMEOUT_MS, max(1.0, time_left) * 1000))
+
+
+def _is_auth_error(error: errors.APIError) -> bool:
+    """The provider refused the API key itself (a typo, a revoked or a disabled key)."""
+    text = str(error).lower().replace("_", " ")
+    return error.code == 401 or (error.code in (400, 403) and "api key" in text)
 
 
 def _retry_after(error: errors.APIError) -> float | None:

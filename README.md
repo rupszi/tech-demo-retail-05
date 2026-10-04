@@ -196,7 +196,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-773 test cases run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network, and they do not read your `.env`. About 310 of them are the two query corpora, hostile and legitimate, run once for each of the three users. The rest include the chat loop with its confirmation prompt, run end to end, and the Gemini adapter against a stand-in client.
+781 test cases run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network, and they do not read your `.env`. About 310 of them are the two query corpora, hostile and legitimate, run once for each of the three users. The rest include the chat loop with its confirmation prompt, run end to end, and the Gemini adapter against a stand-in client.
 
 A second group of 79 tests checks the same rules against the real BigQuery dataset. It needs the Google Cloud setup above and takes about a minute:
 
@@ -226,7 +226,7 @@ src/retail_agent/
   cli/             the chat interface
 config/            sample token payloads for the demo users, and the tone file
 golden_bucket/     sample analyst examples (question, SQL, report)
-tests/             773 offline tests, 79 against BigQuery, and a check of the tests themselves
+tests/             781 offline tests, 79 against BigQuery, and a check of the tests themselves
 docs/              requirements, design and its figures, decisions, example run, client questions
 ```
 
@@ -245,6 +245,7 @@ docs/              requirements, design and its figures, decisions, example run,
 | Message | Fix |
 |---|---|
 | `GEMINI_API_KEY is not set` | Put your key in `.env` |
+| "The language model refused the API key" | The key in `.env` is wrong, revoked or disabled. Create a new one at Google AI Studio and put it in `.env` |
 | `Could not read the settings: ...` | A value in `.env` has the wrong form; the message names it |
 | `Could not start: ...` mentioning credentials or a project | Run the two `gcloud auth application-default` commands above and set `GCP_PROJECT_ID`, or add `--backend duckdb` to run offline |
 | "The language model's usage limit has been reached" | Free-tier quota. Wait for the time shown, or use a paid key |

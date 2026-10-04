@@ -59,8 +59,8 @@ def tool_call(sql, call_id=None, signature=None):
     return types.Part(function_call=wanted, thought_signature=signature)
 
 
-def api_error(code, details=None):
-    return errors.APIError(code, {"error": {"code": code, "message": "x", "details": details}})
+def api_error(code, details=None, message="x"):
+    return errors.APIError(code, {"error": {"code": code, "message": message, "details": details}})
 
 
 def failure(llm):
@@ -188,3 +188,19 @@ def test_a_whole_question_through_the_real_adapter(chat):
     assert [c.role for c in models.sent[1].contents] == ["user", "model", "user"]
     sent_back = models.sent[1].contents[2].parts[0].function_response
     assert sent_back.id == "c1" and sent_back.response["row_count"] == 1
+
+
+@pytest.mark.parametrize(
+    ("error", "is_auth"),
+    [
+        (api_error(400, message="API key not valid. Please pass a valid API key."), True),
+        (api_error(403, message="Your API key was reported as leaked."), True),
+        (api_error(401), True),
+        (api_error(400, message="Request contains an invalid argument."), False),
+        (api_error(403, message="The caller does not have permission"), False),
+        (api_error(503), False),
+    ],
+)
+def test_a_refused_api_key_is_told_apart_from_other_failures(error, is_auth):
+    llm, _ = gemini(error)
+    assert failure(llm).auth is is_auth

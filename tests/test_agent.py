@@ -2,7 +2,7 @@
 
 import pytest
 
-from retail_agent.agent.graph import MSG_BUDGET, MSG_UNAVAILABLE
+from retail_agent.agent.graph import MSG_AUTH, MSG_BUDGET, MSG_UNAVAILABLE
 from retail_agent.llm import LLMResponse, LLMUnavailable, ResilientLLM
 
 from .fakes import ScriptedLLM, SlowModel, call, says, transient
@@ -449,3 +449,10 @@ def test_queries_per_question_are_capped_whatever_the_number_of_calls_per_step(c
     assert len(refused) == 25 and budget_step(result)["name"] == "queries"
     # The count starts again with the next question.
     assert len(sql_steps(session.ask("Once more"))) == 1
+
+
+def test_a_refused_api_key_tells_the_user_to_fix_it_and_not_to_wait(chat):
+    session = chat(LLMUnavailable("API key not valid", auth=True))
+    result = session.ask("Show revenue")
+    assert result.answer == MSG_AUTH and "GEMINI_API_KEY" in result.answer
+    assert result.outcome == "failed"
