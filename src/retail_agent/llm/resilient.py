@@ -60,7 +60,8 @@ class ResilientLLM:
         time_left: float | None = None,
     ) -> LLMResponse:
         self._last_error = None
-        self._deadline = math.inf if time_left is None else self._clock() + time_left
+        started = self._clock()
+        self._deadline = math.inf if time_left is None else started + time_left
         for model in self._models:
             if self._rest_left(model) > 0:
                 continue  # it asked not to be called yet
@@ -68,18 +69,23 @@ class ResilientLLM:
             if response is not None:
                 return response
 
-        # Every model failed or is resting. If one comes back soon, wait for it once. Waiting
-        # past the deadline is pointless, so then the caller is told straight away.
-        soonest = min(self._models, key=self._rest_left)
-        wait = self._rest_left(soonest)
-        if 0 < wait <= self._max_delay and wait < self._time_left():
-            if self.on_wait:
-                self.on_wait(wait)
-            self._sleep(wait + 0.5)
-            response = self._try(soonest, system, messages, tools)
-            if response is not None:
-                return response
-            wait = self._rest_left(min(self._models, key=self._rest_left))
+        # Nothing answered. A rate-limited model gets one more chance: the one that is due back
+        # first, among those that were resting when this call began or were rested during it.
+        # (A model that simply failed has no time to come back at.) Its rest may already be over,
+        # or it is waited for, unless that would take too long or run past the deadline.
+        rested = [m for m in self._models if self._resting_until.get(id(m), 0.0) > started]
+        if rested:
+            soonest = min(rested, key=self._rest_left)
+            wait = self._rest_left(soonest)
+            if wait == 0 or (wait <= self._max_delay and wait + 0.5 < self._time_left()):
+                if wait > 0:
+                    if self.on_wait:
+                        self.on_wait(wait)
+                    self._sleep(wait + 0.5)  # a little longer than asked, to be on the safe side
+                response = self._try(soonest, system, messages, tools)
+                if response is not None:
+                    return response
+        wait = self._shortest_rest()
         # `retry_after` lets the caller tell the user how long the rate limit lasts.
         raise LLMUnavailable(
             f"All models failed. Last error: {self._last_error}", retry_after=wait or None
@@ -87,6 +93,10 @@ class ResilientLLM:
 
     def _rest_left(self, model: LLM) -> float:
         return max(0.0, self._resting_until.get(id(model), 0.0) - self._clock())
+
+    def _shortest_rest(self) -> float:
+        """How long until the first resting model may be called again; 0 if none is resting."""
+        return min((r for r in map(self._rest_left, self._models) if r > 0), default=0.0)
 
     def _time_left(self) -> float:
         return self._deadline - self._clock()

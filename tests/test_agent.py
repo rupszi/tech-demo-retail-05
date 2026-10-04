@@ -1,5 +1,7 @@
 """The agent loop, driven by a scripted model against the local database. No network."""
 
+import pytest
+
 from retail_agent.agent.graph import MSG_BUDGET, MSG_UNAVAILABLE
 from retail_agent.llm import LLMResponse, LLMUnavailable, ResilientLLM
 
@@ -177,10 +179,39 @@ def test_the_model_is_told_when_its_last_step_has_come_so_the_work_ends_in_an_an
     assert budget_step(result)["name"] == "last_step"
 
 
-def test_token_budget_is_enforced(chat):
-    session = chat(says("", call("run_sql", sql=COUNT), tokens=70_000), turn_token_budget=60_000)
+@pytest.mark.parametrize("used", [{"tokens": 70_000}, {"tokens": 10, "out": 69_990}])
+def test_token_budget_is_enforced(chat, used):
+    """Tokens read and tokens written both count."""
+    session = chat(says("", call("run_sql", sql=COUNT), **used), turn_token_budget=60_000)
     result = session.ask("Count orders")
     assert result.answer == MSG_BUDGET and budget_step(result)["name"] == "tokens"
+
+
+def test_the_limit_on_model_calls_is_what_stops_a_long_loop_whatever_its_value(chat):
+    """The graph's own step ceiling must never be reached before the configured limit."""
+    loop = says("", call("run_sql", sql=COUNT))
+    session = chat(*[loop] * 40, max_llm_calls=40)
+    assert session.ask("Keep counting").answer == MSG_BUDGET and session.model.calls == 40
+
+
+def test_the_last_step_is_announced_on_every_result_of_a_step(chat):
+    two = says("", call("run_sql", "c1", sql=COUNT), call("run_sql", "c2", sql=COUNT))
+    session = chat(two, says("Done."), max_llm_calls=2)
+    session.ask("Count twice")
+    assert [("last step" in r["instruction"]) for r in tool_results(session)] == [True, True]
+
+
+def test_every_limit_and_hint_starts_again_with_each_question(chat, clock):
+    nothing = "SELECT id FROM products WHERE brand = 'No such brand'"
+    heavy = says("", call("run_sql", sql=nothing), tokens=50_000)  # most of the token budget
+    session = chat(heavy, says("First answer."), heavy, says("Second answer."))
+    assert session.ask("First question").answer == "First answer."
+    clock.now += 1_000  # far more than the time limit passes between the two questions
+    second = session.ask("Second question")
+    # not stopped by the tokens or the time of the first question
+    assert second.answer == "Second answer." and second.outcome == "answered"
+    # and its first empty result gets the first-time hint, not "no rows matched again"
+    assert "If a filter value may be wrong" in tool_results(session)[-1]["note"]
 
 
 def test_a_question_that_runs_past_the_time_limit_is_stopped(chat, clock):
@@ -253,7 +284,82 @@ def test_unexpected_crash_does_not_reach_the_user(chat):
     first = session.ask("Show revenue")
     assert first.outcome == "failed" and "boom" not in first.answer
     assert any("boom" in s.get("error", "") for s in first.trace["steps"])
-    assert session.ask("Show revenue").answer == "Still here."
+    assert session.ask("And again").answer == "Still here."
+    # the question that crashed is not shown to the model again: two questions in a row are
+    # not a valid conversation
+    assert [m["text"] for m in session.model.requests[-1]["messages"]] == ["And again"]
+
+
+def test_an_interrupted_question_closes_its_trace_and_the_conversation_goes_on(chat):
+    session = chat(KeyboardInterrupt(), says("Still here."))
+    with pytest.raises(KeyboardInterrupt):  # the interface decides what Ctrl-C means
+        session.ask("A slow question")
+    assert session.tracer.last["outcome"] == "failed"
+    assert session.ask("Next question").answer == "Still here."
+
+
+def test_a_log_that_cannot_be_written_does_not_cost_the_answer(chat, tmp_path):
+    (tmp_path / "a-file").write_text("not a directory")
+    session = chat(says("The answer."), trace_dir=str(tmp_path / "a-file" / "logs"))
+    result = session.ask("Show revenue")
+    assert result.answer == "The answer." and result.trace["outcome"] == "answered"
+
+
+def test_a_tool_that_raises_is_reported_to_the_model_and_the_chat_goes_on(chat, monkeypatch):
+    session = chat(says("", call("list_reports")), says("That did not work."))
+    monkeypatch.setattr(session.reports, "list", lambda owner: 1 / 0)
+    result = session.ask("Show my reports")
+    assert result.answer == "That did not work." and "error" in tool_results(session)[0]
+    errors = [s for s in result.trace["steps"] if s["kind"] == "error"]
+    assert errors and "ZeroDivisionError" in errors[0]["error"]
+
+
+def test_reports_can_be_listed_and_read_but_only_the_users_own(chat):
+    session = chat(
+        says("", call("list_reports")), says("", call("get_report", report_id=2)), says("Done.")
+    )
+    session.reports.save("alice", session.conversation_id, "Mine", "my content")
+    session.reports.save("bob", "another-conversation", "Bob's", "bob's content")  # report 2
+    session.ask("List my reports and open number 2")
+    listed, opened = tool_results(session)
+    assert [(r["title"], r["this_conversation"]) for r in listed["reports"]] == [("Mine", True)]
+    assert "error" in opened and "bob" not in str(opened).lower()
+
+
+# ---- what the model is shown of the conversation ----------------------------------------------
+def turns(count):
+    """`count` earlier questions with their answers."""
+    past = []
+    for i in range(count):
+        past.append({"role": "user", "text": f"q{i}"})
+        past.append({"role": "assistant", "text": f"a{i}", "tool_calls": [], "raw": None})
+    return past
+
+
+def test_only_the_recent_history_is_sent_and_it_starts_with_a_question():
+    from retail_agent.agent.graph import HISTORY_MESSAGES, _context
+
+    now = [{"role": "user", "text": "current"}]
+    seen = _context(turns(15) + now, 30)
+    assert len(seen) == HISTORY_MESSAGES + 1
+    assert seen[0]["text"] == "q5" and seen[-1]["text"] == "current"
+
+    # a history that begins with an answer whose question is gone
+    orphaned = turns(10)[1:]
+    seen = _context(orphaned + now, len(orphaned))
+    assert seen[0]["text"] == "q1" and len(seen) == 19
+
+
+def test_a_question_that_never_got_an_answer_is_left_out_of_the_history():
+    from retail_agent.agent.graph import _context
+
+    past = [
+        {"role": "user", "text": "crashed"},
+        *turns(1),
+        {"role": "user", "text": "also crashed"},
+    ]
+    seen = _context([*past, {"role": "user", "text": "current"}], len(past))
+    assert [m["text"] for m in seen] == ["q0", "a0", "current"]
 
 
 def test_backend_outage_is_retried_once_then_reported(chat, backend, monkeypatch):

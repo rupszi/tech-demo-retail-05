@@ -16,7 +16,7 @@ from retail_agent.golden import load_trios
 from retail_agent.llm import LLM
 from retail_agent.observability import Tracer
 from retail_agent.reports import ReportStore
-from retail_agent.safety import QueryGateway, UserProfile, scrub_text
+from retail_agent.safety import QueryGateway, UserProfile
 
 MSG_INTERNAL_ERROR = (
     "Something went wrong on my side and I could not finish that. "
@@ -76,30 +76,44 @@ class ChatSession:
             )
         )
         # The thread id is the key under which the checkpointer keeps this conversation's state.
-        # The recursion limit is a backstop only; the limits per question stop a turn long before.
-        self._config = {"configurable": {"thread_id": self.conversation_id}, "recursion_limit": 60}
+        # The recursion limit is a backstop only: it is set above what the limit on model calls
+        # allows (two graph steps per call), so that limit is always the one that stops a turn.
+        self._config = {
+            "configurable": {"thread_id": self.conversation_id},
+            "recursion_limit": 2 * settings.max_llm_calls + 10,
+        }
         self._trace_id = ""
         self.awaiting_confirmation = False
 
     def ask(self, question: str) -> TurnResult:
-        if self.awaiting_confirmation:  # an unanswered confirmation counts as "no"
-            self.confirm(False)
-        # The question is scrubbed before it is logged; the graph still gets it as typed.
-        self._trace_id = self.tracer.start_turn(scrub_text(question)[0])
+        if self.awaiting_confirmation:
+            # An unanswered confirmation counts as "no", and the turn it belonged to ends there.
+            self._decide(approved=False, abandoned=True)
+        # The trace is scrubbed as a whole when it is written, the question included.
+        self._trace_id = self.tracer.start_turn(question)
         return self._run({"question": question})
 
     def confirm(self, approved: bool) -> TurnResult:
         """Deliver the user's decision on a pending destructive action."""
         if not self.awaiting_confirmation:
             raise RuntimeError("There is nothing to confirm.")
+        return self._decide(approved)
+
+    def _decide(self, approved: bool, abandoned: bool = False) -> TurnResult:
         self.tracer.resume()
         # Resuming re-enters the graph at the paused step, with the decision as its input.
-        return self._run(Command(resume={"approved": approved}))
+        return self._run(Command(resume={"approved": approved, "abandoned": abandoned}))
 
     def _run(self, graph_input: Any) -> TurnResult:
         self.awaiting_confirmation = False
         try:
             state = self._graph.invoke(graph_input, self._config)
+        except KeyboardInterrupt:
+            # The interface interrupted the question (Ctrl-C). Its trace is closed here; what
+            # happens to the chat is the interface's decision.
+            self.tracer.event("error", "interrupted")
+            self.tracer.end_turn("failed", "")
+            raise
         except Exception as e:  # noqa: BLE001 - nothing may crash the interface
             self.tracer.event("error", "unhandled", error=f"{type(e).__name__}: {e}"[:500])
             trace = self.tracer.end_turn("failed", MSG_INTERNAL_ERROR)

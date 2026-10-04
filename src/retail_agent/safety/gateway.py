@@ -50,6 +50,7 @@ class QueryGateway:
             tables=query.tables,
             bytes_processed=estimate.bytes_processed,
             redactions=redactions,
-            # Reaching the limit means there may be more rows; the model is told to aggregate.
-            truncated=len(frame) >= query.limit,
+            # Cut off means our own row limit was reached; the model is then told to aggregate.
+            # A smaller LIMIT that the model chose itself (a top 5) is a complete answer.
+            truncated=len(frame) >= self.max_rows,
         )

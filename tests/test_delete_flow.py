@@ -209,12 +209,89 @@ def test_only_one_delete_is_put_to_the_user_per_question(session):
     assert "Only one delete request" in refused["error"]
 
 
+def test_the_outcome_of_a_delete_does_not_leak_into_the_next_question(session):
+    s = session(QUERY_AND_DELETE, says("Many orders."), says("Unrelated."), DELETE_DRIFTLINE)
+    s.ask(BOTH)
+    s.confirm(False)
+    assert s.ask("Something else").answer == "Unrelated."  # no "Nothing was deleted." in front
+    assert s.ask("Delete the Driftline reports").confirmation  # and a new question may ask again
+
+
+def test_two_delete_requests_in_one_step_lead_to_one_confirmation(session):
+    both = says(
+        "",
+        call("delete_reports", "c1", mentioning="Driftline"),
+        call("delete_reports", "c2", all_reports=True),
+    )
+    s = session(both, says("Only the first request was handled."))
+    shown = s.ask("Delete things").confirmation["reports"]
+    assert [r["title"] for r in shown] == ["Q1 review", "Brand comparison"]  # the first request
+    result = s.confirm(True)
+    assert result.confirmation is None and titles(s) == ["Texas deep dive"]
+    refused = [m["result"] for m in s.model.requests[-1]["messages"] if m["role"] == "tool"][0]
+    assert "Only one delete request" in refused["error"]
+
+
+def test_all_reports_means_all_of_the_users_own(session):
+    s = session(says("", call("delete_reports", all_reports=True)))
+    assert len(s.ask("Delete everything").confirmation["reports"]) == 3
+    s.confirm(True)
+    assert titles(s) == [] and titles(s, "bob") == ["Bob's notes"]
+
+
 def test_waiting_for_the_user_does_not_count_towards_the_time_limit(session, clock):
     s = session(QUERY_AND_DELETE, says("You have many orders."))
     s.ask(BOTH)
     clock.now += 600  # the user takes ten minutes to decide
     result = s.confirm(True)
     assert result.outcome == "answered" and result.answer.endswith("You have many orders.")
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"report_ids": "12"},  # a string would be read as report 1 and report 2
+        {"report_ids": {"1": True}},
+        {"report_ids": [True]},
+        {"report_ids": ["1"]},
+        {"mentioning": ["Driftline"]},
+        {"this_conversation": "false"},
+        {"all_reports": "false"},
+        {"all_reports": [0]},
+    ],
+)
+def test_delete_arguments_of_the_wrong_type_are_refused_not_guessed(session, args):
+    s = session(says("", call("delete_reports", **args)), says("I could not do that."))
+    result = s.ask("Delete report 12")
+    assert result.confirmation is None and len(titles(s)) == 3
+    refused = [m["result"] for m in s.model.requests[-1]["messages"] if m["role"] == "tool"][-1]
+    assert "error" in refused
+
+
+def test_a_whole_number_sent_as_a_float_is_still_an_id(session):
+    s = session(says("", call("delete_reports", report_ids=[1.0])))
+    assert [r["id"] for r in s.ask("Delete report 1").confirmation["reports"]] == [1]
+
+
+def test_the_audit_log_keeps_no_personal_data_from_the_request(session):
+    s = session(says("", call("delete_reports", report_ids=[1], reason="for a.b@example.com")))
+    s.ask("Delete report 1")
+    assert "a.b@example.com" not in s.reports.audit("alice")[-1]["detail"]
+
+
+def test_a_new_message_ends_the_whole_pending_turn(session):
+    """The delete is dropped, and so is everything else that turn would still have done."""
+    s = session(QUERY_AND_DELETE, says("Second answer."))
+    s.ask(BOTH)
+    result = s.ask("Something else entirely")
+    assert result.answer == "Second answer." and s.model.calls == 2  # no call for the old turn
+    assert len(titles(s)) == 3 and actions(s) == ["delete_requested", "delete_cancelled"]
+
+
+def test_a_report_title_is_kept_to_one_line(chat):
+    s = chat(says("", call("save_report", title="Q1\n  review", content="x")), says("Saved."))
+    s.ask("Save it")
+    assert [r.title for r in s.reports.list("alice")] == ["Q1 review"]
 
 
 def test_the_decision_is_traced(session):
@@ -234,3 +311,9 @@ def test_saving_a_report_scrubs_personal_data(chat):
     saved = s.reports.list("alice")[0]
     assert saved.title == "Q1" and "jo@example.com" not in saved.content
     assert saved.conversation_id == s.conversation_id
+
+
+def test_a_report_title_is_scrubbed_too(chat):
+    s = chat(says("", call("save_report", title="Notes on a.b@example.com", content="x")), says())
+    s.ask("Save it")
+    assert s.reports.list("alice")[0].title == "Notes on [email removed]"

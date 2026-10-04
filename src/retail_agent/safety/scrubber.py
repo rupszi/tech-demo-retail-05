@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from typing import Any
 
 import pandas as pd
 
@@ -45,6 +46,21 @@ def scrub_text(text: str) -> tuple[str, dict[str, int]]:
         if count:
             hits[kind] += count
     return text, dict(hits)
+
+
+def scrub_value(value: Any) -> Any:
+    """Mask personal data in every string inside a nested value (dicts, lists, tuples).
+
+    Used for what is written to logs: a trace or an audit entry can hold text the model wrote,
+    such as SQL with a literal that a user typed.
+    """
+    if isinstance(value, str):
+        return scrub_text(value)[0]
+    if isinstance(value, dict):
+        return {key: scrub_value(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [scrub_value(item) for item in value]
+    return value
 
 
 def scrub_frame(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:

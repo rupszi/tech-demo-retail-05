@@ -36,6 +36,11 @@ _WRITE_NODES = tuple(
     )
     if hasattr(exp, name)
 )  # fmt: skip
+_PARAMETERS = tuple(
+    getattr(exp, name)
+    for name in ("Parameter", "SessionParameter", "Placeholder")
+    if hasattr(exp, name)
+)
 # What FROM and JOIN may read from. A table function (EXTERNAL_QUERY, ML.PREDICT) is none of these.
 _FROM_SOURCES = (exp.Table, exp.Subquery, exp.Unnest)
 # The parts of a table reference that the scope rewrite carries over. Anything else on a table
@@ -118,6 +123,15 @@ def _reject_forbidden_nodes(tree: exp.Expression) -> None:
             name = _function_name(node)
             if "." in name or name in FORBIDDEN_FUNCTIONS:
                 raise _forbidden_function(name)
+        # SESSION_USER written without parentheses parses as a column.
+        if isinstance(node, exp.Column) and node.name.upper() in FORBIDDEN_FUNCTIONS:
+            raise _forbidden_function(node.name.upper())
+        # Query parameters and system variables (@x, @@project_id). No analysis needs them, and a
+        # system variable can reveal the project the service runs in.
+        if isinstance(node, _PARAMETERS):
+            raise SqlRejected(
+                "parameter", "Parameters and system variables are not allowed.", False
+            )
 
 
 def _function_name(node: exp.Func) -> str:
@@ -193,7 +207,9 @@ def _real_tables(tree: exp.Expression, dataset: str) -> list[exp.Table]:
 
 def _reject_pii_columns(tree: exp.Expression) -> None:
     """Early, friendly rejection. The hard guarantee is that scoping never selects these columns."""
-    used = sorted({c.name.lower() for c in tree.find_all(exp.Column)} & PII_COLUMNS)
+    # Every identifier is checked, not only column references: a personal data column can also
+    # be named in USING (...) or as a field of a row value.
+    used = sorted({i.name.lower() for i in tree.find_all(exp.Identifier)} & PII_COLUMNS)
     if used:
         raise SqlRejected(
             "pii_column",

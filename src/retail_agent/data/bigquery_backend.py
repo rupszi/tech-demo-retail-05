@@ -80,6 +80,11 @@ class BigQueryBackend:
         text = str(e)
         if "bytes billed" in text.lower():
             return DataError("too_expensive", text)
+        # BigQuery reports an exhausted quota or rate limit as 403. Rewriting the SQL cannot help.
+        if isinstance(e, gexc.Forbidden) and (
+            "quota" in text.lower() or "rate limit" in text.lower()
+        ):
+            return DataError("unavailable", text)
         if isinstance(e, gexc.BadRequest | gexc.NotFound):
             return DataError("syntax", text)
         return DataError("execution", text)
@@ -106,9 +111,21 @@ class BigQueryBackend:
     def execute(self, sql: str, timeout_s: float | None = None) -> pd.DataFrame:
         # Never longer than the backend's own timeout; shorter when the question has less left.
         timeout = self.timeout_s if timeout_s is None else max(1.0, min(self.timeout_s, timeout_s))
+        job = None
         try:
             job = self.client.query(sql, job_config=self._config(dry_run=False))
             return job.result(timeout=timeout).to_dataframe(create_bqstorage_client=False)
+        except TimeoutError as e:
+            # Our own timeout, not an outage. The job would keep running on BigQuery, so it is
+            # cancelled, and the model is told to narrow the query: running the same SQL again
+            # would only time out again.
+            if job is not None:
+                try:
+                    job.cancel()
+                except Exception:  # noqa: BLE001 - best effort; the timeout is what gets reported
+                    log.warning("Could not cancel BigQuery job after a timeout")
+            message = f"The query ran for more than {timeout:.0f} seconds and was cancelled."
+            raise DataError("too_expensive", message) from e
         except Exception as e:  # noqa: BLE001 - every client error is classified
             log.warning("BigQuery execution failed: %s", e)
             raise self._classify(e) from e

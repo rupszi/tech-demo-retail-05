@@ -50,7 +50,9 @@ class UserProfile:
             name=name if isinstance(name, str) and name else subject,
             # dict.fromkeys removes duplicates and keeps the order of the token.
             brands=tuple(dict.fromkeys(b for b in granted if b and b != ALL_BRANDS)),
-            all_brands=ALL_BRANDS in granted,
+            # The wide grant must be written exactly as "brand:*". Anything close to it grants
+            # nothing, so a typing mistake fails closed.
+            all_brands=BRAND_SCOPE + ALL_BRANDS in scopes,
         )
 
     def describe_scope(self) -> str:
@@ -62,5 +64,10 @@ class UserProfile:
 def load_profiles(path: str | Path) -> dict[str, UserProfile]:
     """Read sample token payloads and return a profile for each, keyed by subject."""
     payloads = json.loads(Path(path).read_text(encoding="utf-8"))["users"]
-    profiles = [UserProfile.from_claims(claims) for claims in payloads]
-    return {profile.user_id: profile for profile in profiles}
+    profiles: dict[str, UserProfile] = {}
+    for claims in payloads:
+        profile = UserProfile.from_claims(claims)
+        if profile.user_id in profiles:  # a second entry would silently replace the first
+            raise ValueError(f"The user {profile.user_id!r} appears more than once.")
+        profiles[profile.user_id] = profile
+    return profiles

@@ -9,6 +9,7 @@ The metrics shown by `/stats` are computed from the same file.
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from collections.abc import Callable, Iterator
@@ -17,7 +18,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from retail_agent.safety.scrubber import scrub_value
+
 TRACE_FILE = "traces.jsonl"
+log = logging.getLogger(__name__)
 
 
 class Tracer:
@@ -29,7 +33,10 @@ class Tracer:
         on_step: Callable[[str], None] | None = None,
     ):
         self._path = Path(trace_dir) / TRACE_FILE
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:  # reported when the first trace cannot be written
+            pass
         self._session_id = session_id
         self._user_id = user_id
         self._on_step = on_step  # lets the interface show progress ("Running query...")
@@ -107,9 +114,16 @@ class Tracer:
             empty_results=sum(1 for s in sql if s.get("rows") == 0),
             redactions=sum(sum(s.get("redactions", {}).values()) for s in steps),
         )
+        # Everything in the record is scrubbed, not only the question and the answer: the SQL
+        # the model wrote and the error texts can repeat something a user typed.
+        turn = scrub_value(turn)
         # One line per question, appended: the file is the log and the source of the metrics.
-        with self._path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(turn, default=str) + "\n")
+        try:
+            with self._path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(turn, default=str) + "\n")
+        except OSError as e:
+            # A log that cannot be written must not take the answer down with it.
+            log.warning("Could not write the trace to %s: %s", self._path, e)
         self.last = turn
         return turn
 
@@ -118,7 +132,28 @@ def read_traces(trace_dir: str | Path) -> list[dict[str, Any]]:
     path = Path(trace_dir) / TRACE_FILE
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    traces = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            trace = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # a damaged line costs one trace, not the whole log
+        if isinstance(trace, dict):
+            traces.append(trace)
+    return traces
+
+
+def _recovered(trace: dict[str, Any]) -> bool:
+    """A query succeeded after one had failed: the self-correction worked."""
+    failed = False
+    for step in trace["steps"]:
+        if step["kind"] != "sql":
+            continue
+        if step.get("error"):
+            failed = True
+        elif failed:
+            return True
+    return False
 
 
 def _percentile(values: list[float], q: float) -> float:
@@ -163,9 +198,7 @@ def compute_stats(traces: list[dict[str, Any]]) -> dict[str, Any]:
             round(sum(t["empty_results"] for t in traces) / queries, 3) if queries else 0
         ),
         "recovered_after_sql_error": (
-            round(
-                sum(1 for t in had_sql_error if t["outcome"] == "answered") / len(had_sql_error), 3
-            )
+            round(sum(1 for t in had_sql_error if _recovered(t)) / len(had_sql_error), 3)
             if had_sql_error
             else None
         ),

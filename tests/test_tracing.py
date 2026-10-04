@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -73,6 +74,103 @@ def test_metrics_are_computed_from_the_traces(chat, settings):
     assert stats["sql_queries"] == 6 and stats["sql_error_rate"] == round(4 / 6, 3)
     assert stats["recovered_after_sql_error"] == 0.5
     assert stats["tokens_per_question"] > 0 and stats["latency_ms_p95"] >= stats["latency_ms_p50"]
+
+
+def test_everything_in_a_trace_is_scrubbed_not_only_the_question(chat, settings):
+    sql = "SELECT COUNT(*) AS n FROM users WHERE state = 'jane.doe@example.com'"
+    result = chat(says("", call("run_sql", sql=sql)), says("None.")).ask("How many are there?")
+    written = (Path(settings.trace_dir) / "traces.jsonl").read_text()
+    assert "jane.doe@example.com" not in written and "[email removed]" in written
+    assert "jane.doe@example.com" not in str(result.trace)  # what /trace shows
+
+
+def sql_step(result):
+    return (
+        {"kind": "sql", "name": "run_sql", "error": "syntax"}
+        if result == "error"
+        else {
+            "kind": "sql",
+            "name": "run_sql",
+            "rows": 0 if result == "empty" else 3,
+        }
+    )
+
+
+def trace(outcome, ms, queries=(), tokens=(0, 0), calls=0, retries=0, redactions=0, steps=()):
+    """A trace as `end_turn` writes it, built by hand so every metric has a known value."""
+    return {
+        "outcome": outcome,
+        "duration_ms": ms,
+        "tokens_in": tokens[0],
+        "tokens_out": tokens[1],
+        "llm_calls": calls,
+        "llm_retries": retries,
+        "sql_queries": len(queries),
+        "sql_errors": sum(1 for q in queries if q == "error"),
+        "empty_results": sum(1 for q in queries if q == "empty"),
+        "redactions": redactions,
+        "steps": [*(sql_step(q) for q in queries), *steps],
+    }
+
+
+def test_every_metric_has_the_value_the_traces_imply():
+    confirmed = {"kind": "confirmation", "name": "delete_reports", "approved": True}
+    cancelled = {"kind": "confirmation", "name": "delete_reports", "approved": False}
+    blocked = {"kind": "guard", "name": "pii_request", "blocked": True}
+    stats = compute_stats(
+        [
+            trace("answered", 1000, ["error", "ok"], tokens=(100, 20), calls=2),  # recovered
+            trace("answered", 3000, ["error"], tokens=(200, 40), calls=1, retries=2),  # apologised
+            trace("blocked", 0, steps=[blocked]),
+            trace(
+                "gave_up", 9000, ["empty"], (300, 60), 3, redactions=2, steps=[confirmed, cancelled]
+            ),
+        ]
+    )
+    assert stats == {
+        "questions": 4,
+        "answered": 0.5,
+        "blocked_by_guard": 0.25,
+        "gave_up": 0.25,
+        "failed": 0.0,
+        "latency_ms_p50": 3000,
+        "latency_ms_p95": 9000,
+        "tokens_per_question": 180,
+        "llm_calls_per_question": 1.5,
+        "llm_retries": 2,
+        "sql_queries": 4,
+        "sql_error_rate": 0.5,
+        "empty_result_rate": 0.25,
+        # an answer after a failed query is a recovery only if a later query succeeded
+        "recovered_after_sql_error": 0.5,
+        "guard_blocks_by_category": {"pii_request": 1},
+        "pii_redactions": 2,
+        "deletes_confirmed": 1,
+        "deletes_cancelled": 1,
+    }
+
+
+def test_a_damaged_line_costs_one_trace_not_the_whole_log(tmp_path):
+    tracer = Tracer(tmp_path, "session-1", "alice")
+    tracer.start_turn("first")
+    tracer.end_turn("answered", "ok")
+    with (tmp_path / "traces.jsonl").open("a") as f:
+        f.write("this is not json\n")
+    tracer.start_turn("second")
+    tracer.end_turn("answered", "ok")
+    assert [t["question"] for t in read_traces(tmp_path)] == ["first", "second"]
+
+
+def test_waiting_for_a_confirmation_is_left_out_of_the_latency_of_a_real_turn(chat, monkeypatch):
+    from retail_agent.observability import tracing
+
+    now = {"t": 100.0}
+    monkeypatch.setattr(tracing.time, "perf_counter", lambda: now["t"])
+    session = chat(says("", call("delete_reports", all_reports=True)))
+    session.reports.save("alice", session.conversation_id, "Q1", "content")
+    session.ask("Delete my reports")
+    now["t"] += 600  # the user thinks about it for ten minutes
+    assert session.confirm(False).trace["duration_ms"] == 0
 
 
 def test_stats_with_no_traces(tmp_path):

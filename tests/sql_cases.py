@@ -117,6 +117,13 @@ REJECTED = [
     # FROM may only read tables, subqueries and UNNEST: these two are stopped by that rule alone
     ("SELECT * FROM VALUES (1, 2)", "table_function"),
     ("SELECT * FROM orders JOIN LATERAL (SELECT 1 AS x) ON TRUE", "table_function"),
+    # system variables and query parameters; a system variable would name the service's project
+    ("SELECT @@project_id AS p", "parameter"),
+    ("SELECT * FROM orders WHERE order_id = @id", "parameter"),
+    ("SELECT SESSION_USER AS u", "forbidden_function"),
+    # a personal data column named somewhere other than a column reference
+    ("SELECT * FROM users u JOIN orders o USING (email)", "pii_column"),
+    ("SELECT (u).email FROM users u", "pii_column"),
     ("SELECT SESSION_USER()", "forbidden_function"),
     ("SELECT CURRENT_USER()", "forbidden_function"),
     ("SELECT AI.GENERATE('hi')", "forbidden_function"),

@@ -15,6 +15,17 @@ def _names(value: str | None) -> tuple[str, ...]:
     return tuple(dict.fromkeys(n.strip() for n in (value or "").split(",") if n.strip()))
 
 
+def _int(name: str, default: int) -> int:
+    """A whole-number setting. A value that is not one is reported by name."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        raise ValueError(f"{name} must be a whole number, got {value!r}.") from None
+
+
 @dataclass(frozen=True)
 class Settings:
     # model
@@ -67,13 +78,13 @@ class Settings:
             duckdb_path=env("DUCKDB_PATH", default.duckdb_path),
             gcp_project_id=env("GCP_PROJECT_ID") or None,
             bq_dataset=env("BQ_DATASET", default.bq_dataset),
-            bq_max_bytes_billed=int(env("BQ_MAX_BYTES_BILLED", default.bq_max_bytes_billed)),
-            max_sql_retries=int(env("MAX_SQL_RETRIES", default.max_sql_retries)),
-            max_rows=int(env("MAX_ROWS", default.max_rows)),
-            rows_to_model=int(env("ROWS_TO_MODEL", default.rows_to_model)),
-            max_llm_calls=int(env("MAX_LLM_CALLS", default.max_llm_calls)),
-            turn_token_budget=int(env("TURN_TOKEN_BUDGET", default.turn_token_budget)),
-            turn_time_budget_s=int(env("TURN_TIME_BUDGET_SECONDS", default.turn_time_budget_s)),
+            bq_max_bytes_billed=_int("BQ_MAX_BYTES_BILLED", default.bq_max_bytes_billed),
+            max_sql_retries=_int("MAX_SQL_RETRIES", default.max_sql_retries),
+            max_rows=_int("MAX_ROWS", default.max_rows),
+            rows_to_model=_int("ROWS_TO_MODEL", default.rows_to_model),
+            max_llm_calls=_int("MAX_LLM_CALLS", default.max_llm_calls),
+            turn_token_budget=_int("TURN_TOKEN_BUDGET", default.turn_token_budget),
+            turn_time_budget_s=_int("TURN_TIME_BUDGET_SECONDS", default.turn_time_budget_s),
             reports_db_path=env("REPORTS_DB_PATH", default.reports_db_path),
             trace_dir=env("TRACE_DIR", default.trace_dir),
             persona_path=env("PERSONA_PATH", default.persona_path),

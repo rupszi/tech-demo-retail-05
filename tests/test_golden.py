@@ -15,8 +15,9 @@ def test_similar_past_work_is_found(settings):
     assert names("What data is available?") == []
 
 
-def test_at_most_two_examples_are_used(settings):
-    assert len(find_similar("compare monthly revenue for top customers", trios(settings))) <= 2
+def test_the_two_closest_examples_are_used(settings):
+    found = find_similar("compare monthly revenue for top customers", trios(settings))
+    assert [t.name for t in found] == ["monthly_revenue", "top_customers"]  # of three that match
 
 
 def test_every_stored_query_still_passes_the_gate_and_runs(settings, gateway):
@@ -26,3 +27,5 @@ def test_every_stored_query_still_passes_the_gate_and_runs(settings, gateway):
     for trio in stored:
         result = gateway("carol").run(trio.sql)
         assert len(result.frame.columns) >= 2, trio.name
+    # That each example also finds rows is checked on the real dataset (`pytest -m bigquery`).
+    # The small mock has too few items a month for the minimum group sizes some examples use.

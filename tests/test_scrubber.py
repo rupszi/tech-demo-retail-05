@@ -58,3 +58,20 @@ def test_frame_without_text_is_returned_as_is():
     frame = pd.DataFrame({"n": [1, 2]})
     cleaned, hits = scrub_frame(frame)
     assert cleaned is frame and hits == {}
+
+
+def test_every_string_in_a_nested_value_is_masked():
+    from retail_agent.safety import scrub_value
+
+    value = {
+        "sql": "WHERE email = 'a.b@example.com'",
+        "steps": [{"error": "call 555-123-4567"}, ("c.d@example.com", 3)],
+        "ms": 12,
+        "ok": True,
+    }
+    assert scrub_value(value) == {
+        "sql": "WHERE email = '[email removed]'",
+        "steps": [{"error": "call [phone removed]"}, ["[email removed]", 3]],
+        "ms": 12,
+        "ok": True,
+    }

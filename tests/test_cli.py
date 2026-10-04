@@ -21,8 +21,8 @@ def test_a_failing_command_does_not_end_the_chat(tmp_path, capsys):
     from retail_agent.cli.app import _command
     from retail_agent.config import Settings
 
-    (tmp_path / "traces.jsonl").write_text("this is not json\n")
-    _command("/stats", None, Settings(trace_dir=str(tmp_path)), Console())
+    # there is no session here, so the command raises inside; the chat must survive it
+    _command("/reports", None, Settings(trace_dir=str(tmp_path)), Console())
     assert "That command failed" in capsys.readouterr().out
 
 
@@ -71,3 +71,31 @@ def test_a_missing_model_key_is_reported_without_the_bigquery_hint(capsys, monke
     assert main(["--user", "alice"]) == 1
     out = capsys.readouterr().out
     assert "GEMINI_API_KEY is not set" in out and "--backend duckdb" not in out
+
+
+def test_text_from_users_and_the_model_is_shown_as_written(monkeypatch, capsys):
+    """Rich reads square brackets as formatting; an unmatched one used to end the chat."""
+    from types import SimpleNamespace
+
+    from rich.console import Console
+
+    from retail_agent.cli.app import _command, _confirm_delete, _show_trace
+    from retail_agent.config import Settings
+    from retail_agent.reports import ReportStore
+
+    title = "Q1 review[/] [bold]plan"
+    monkeypatch.setattr("builtins.input", lambda *_: "n")
+    assert _confirm_delete({"reports": [{"id": 7, "title": title}]}, Console()) is False
+    assert title in capsys.readouterr().out
+
+    reports = ReportStore(":memory:")
+    reports.save("alice", "c1", title, "content")
+    session = SimpleNamespace(reports=reports, profile=SimpleNamespace(user_id="alice"))
+    _command("/reports", session, Settings(), Console())
+    listed = capsys.readouterr().out
+    assert title in listed and "That command failed" not in listed
+
+    sql = "SELECT '[/]' AS x"
+    step = {"kind": "sql", "name": "run_sql", "ms": 1, "rows": 1, "sql": sql}
+    _show_trace({"trace_id": "t1", "outcome": "answered", "steps": [step]}, Settings(), Console())
+    assert sql in capsys.readouterr().out

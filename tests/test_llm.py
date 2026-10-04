@@ -112,6 +112,32 @@ def test_when_every_model_is_rate_limited_for_long_the_user_is_told_how_long():
     assert sleeps == [] and e.value.retry_after == 450.0
 
 
+def test_a_model_that_only_failed_does_not_hide_one_that_is_due_back_soon():
+    """Whether the rest ends during the other model's retries or after them, it gets its turn."""
+    rested = ScriptedLLM(rate_limited(8), says("back again"))
+    broken = ScriptedLLM(transient(), transient(), transient())
+    llm, sleeps = resilient(rested, broken)
+    assert llm.generate("s", [], []).text == "back again"
+    assert rested.calls == 2 and broken.calls == 3
+
+
+def test_a_model_whose_rest_ended_while_others_were_tried_is_called_without_waiting():
+    fake = FakeTime()
+    rested = ScriptedLLM(rate_limited(8), says("back again"))
+    slow = SlowModel(fake, 20, permanent())  # takes longer than the rest lasts
+    llm = ResilientLLM([rested, slow], sleep=fake.sleep, clock=fake.clock)
+    assert llm.generate("s", [], []).text == "back again"
+    assert fake.sleeps == []  # nothing left to wait for
+
+
+def test_a_wait_that_would_end_after_the_deadline_is_not_started():
+    model = ScriptedLLM(rate_limited(10), says("never asked"))
+    llm, sleeps = resilient(model)
+    with pytest.raises(LLMUnavailable) as e:
+        llm.generate("s", [], [], time_left=10.2)  # the wait is 10 seconds plus a margin
+    assert sleeps == [] and model.calls == 1 and e.value.retry_after == 10
+
+
 def test_each_call_is_told_how_long_it_may_take():
     model = ScriptedLLM(says("hi"), says("hi"))
     llm, _ = resilient(model)

@@ -70,3 +70,20 @@ def test_sample_token_payloads_load_for_both_backends(profiles):
     assert set(real) == {"alice", "bob", "carol"}
     assert real["alice"].brands == ("Allegra K", "Levi's", "Roxy")
     assert set(real["alice"].brands).isdisjoint(real["bob"].brands)
+
+
+@pytest.mark.parametrize("scope", ["brand: *", "brand:* ", " brand:*", "brand:**", "BRAND:*"])
+def test_the_all_brands_grant_must_be_written_exactly(scope):
+    assert not profile(scopes=[scope]).all_brands
+
+
+def test_a_user_listed_twice_in_a_profile_file_is_an_error(tmp_path):
+    import json
+
+    from retail_agent.safety import load_profiles
+
+    users = [{"sub": "alice", "scopes": ["brand:A"]}, {"sub": "alice", "scopes": ["brand:*"]}]
+    path = tmp_path / "users.json"
+    path.write_text(json.dumps({"users": users}))
+    with pytest.raises(ValueError, match="more than once"):
+        load_profiles(path)

@@ -74,6 +74,13 @@ TOOL_SPECS = [
 _STOP = "Do not run more queries for this question. Tell the user plainly what you could not do."
 
 
+def _is_id(value: Any) -> bool:
+    """A whole number. JSON has no integer type, so 3.0 is accepted; True and "3" are not."""
+    if isinstance(value, bool):
+        return False
+    return isinstance(value, int) or (isinstance(value, float) and value.is_integer())
+
+
 class Toolbox:
     def __init__(
         self,
@@ -193,7 +200,8 @@ class Toolbox:
     # ---- reports ---------------------------------------------------------------------------
     def save_report(self, title: str, content: str) -> dict:
         # A saved report is output too, so it goes through the same scrubber as an answer.
-        title, _ = scrub_text(title.strip() or "Untitled report")
+        # A title is one line: line breaks would change how the confirmation list reads.
+        title, _ = scrub_text(" ".join(title.split()) or "Untitled report")
         content, redactions = scrub_text(content)
         report = self._reports.save(self._owner, self._conversation_id, title, content)
         self._tracer.event("report", "save", report_id=report.id, redactions=redactions)
@@ -220,11 +228,19 @@ class Toolbox:
 
     def find_reports_to_delete(self, args: dict) -> tuple[list[Report], str]:
         """Resolve a delete request to the user's own matching reports. Deletes nothing."""
-        mentioning = (args.get("mentioning") or "").strip()
-        this_conversation = bool(args.get("this_conversation"))
-        report_ids = args.get("report_ids") or None
+        # The arguments come from the model. They are checked, not coerced: a string where a
+        # list is expected would otherwise be read one character at a time.
+        mentioning, report_ids = args.get("mentioning"), args.get("report_ids")
+        if mentioning is not None and not isinstance(mentioning, str):
+            return [], "`mentioning` must be text."
+        if report_ids is not None and not (
+            isinstance(report_ids, list) and all(_is_id(i) for i in report_ids)
+        ):
+            return [], "`report_ids` must be a list of report ids."
+        mentioning = (mentioning or "").strip()
+        this_conversation = args.get("this_conversation") is True
         # A request with no criterion would match every report, so it must be explicit.
-        if not (mentioning or this_conversation or report_ids or args.get("all_reports")):
+        if not (mentioning or this_conversation or report_ids or args.get("all_reports") is True):
             return [], "Say which reports to delete: by text, by conversation, by id, or all."
         found = self._reports.find(
             self._owner,

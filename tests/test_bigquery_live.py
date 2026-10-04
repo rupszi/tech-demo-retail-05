@@ -99,4 +99,5 @@ def test_every_analyst_example_runs_and_stays_cheap(live):
     for trio in trios:
         result = live.gateway("carol").run(trio.sql)
         assert len(result.frame.columns) >= 2, trio.name
+        assert len(result.frame) > 0, trio.name  # an example that finds nothing explains nothing
         assert result.bytes_processed < 100_000_000, trio.name  # each scans a few MB

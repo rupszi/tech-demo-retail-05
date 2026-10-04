@@ -106,6 +106,14 @@ def test_truncation_is_reported(gateway):
     assert gateway("carol", max_rows=10).run("SELECT COUNT(*) FROM order_items").truncated is False
 
 
+def test_a_limit_the_query_chose_itself_is_not_reported_as_cut_off(gateway):
+    """A top 3 that returns 3 rows is complete; only our own row limit means "cut off"."""
+    top = gateway("carol", max_rows=10).run("SELECT id FROM order_items ORDER BY id LIMIT 3")
+    assert len(top.frame) == 3 and top.truncated is False
+    capped = gateway("carol", max_rows=10).run("SELECT id FROM order_items LIMIT 5000")
+    assert len(capped.frame) == 10 and capped.truncated is True
+
+
 def test_table_names_are_reported(profiles):
     q = check("SELECT 1 FROM orders o JOIN users u ON u.id = o.user_id", profiles["alice"])
     assert q.tables == ("orders", "users")

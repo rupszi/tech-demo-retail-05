@@ -69,6 +69,9 @@ class FakeJob:
             raise self._error
         return SimpleNamespace(to_dataframe=lambda **kw: self._df)
 
+    def cancel(self):
+        self.cancelled = True
+
 
 class FakeClient:
     def __init__(self, job=None, query_error=None):
@@ -108,6 +111,14 @@ def test_bq_execute_sets_byte_cap_and_returns_frame():
     assert client.configs[0].maximum_bytes_billed == 10_000 and client.configs[0].dry_run is False
 
 
+def test_bq_query_that_runs_out_of_time_is_cancelled_and_not_treated_as_an_outage():
+    job = FakeJob(error=TimeoutError())
+    with pytest.raises(DataError) as e:
+        bq(FakeClient(job)).execute("SELECT 1", timeout_s=5)
+    # "too_expensive" tells the model to narrow the query; an outage would re-run the same SQL
+    assert e.value.kind == "too_expensive" and job.cancelled
+
+
 @pytest.mark.parametrize(("given", "used"), [(None, 60.0), (7.5, 7.5), (500, 60.0), (0, 1.0)])
 def test_bq_query_timeout_follows_the_time_that_is_left(given, used):
     import pandas as pd
@@ -125,6 +136,7 @@ def test_bq_query_timeout_follows_the_time_that_is_left(given, used):
         (gexc.ServiceUnavailable("backend down"), "unavailable"),
         (gexc.TooManyRequests("slow down"), "unavailable"),
         (gexc.Forbidden("no access"), "execution"),
+        (gexc.Forbidden("Quota exceeded: your project exceeded its quota"), "unavailable"),
     ],
 )
 def test_bq_error_classification(error, kind):

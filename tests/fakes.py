@@ -9,8 +9,11 @@ def call(name: str, call_id: str = "c1", **args) -> ToolCall:
     return ToolCall(id=call_id, name=name, args=args)
 
 
-def says(text: str = "", *calls: ToolCall, tokens: int = 100) -> LLMResponse:
-    return LLMResponse(text=text, tool_calls=tuple(calls), model="fake", input_tokens=tokens)
+def says(text: str = "", *calls: ToolCall, tokens: int = 100, out: int = 0) -> LLMResponse:
+    """A model response: text and/or tool calls, with `tokens` read and `out` written."""
+    return LLMResponse(
+        text=text, tool_calls=tuple(calls), model="fake", input_tokens=tokens, output_tokens=out
+    )
 
 
 class ScriptedLLM:
@@ -18,7 +21,7 @@ class ScriptedLLM:
 
     name = "fake"
 
-    def __init__(self, *script: LLMResponse | Exception):
+    def __init__(self, *script: LLMResponse | BaseException):
         self._script = list(script)
         self.requests: list[dict] = []
 
@@ -34,7 +37,7 @@ class ScriptedLLM:
         if not self._script:
             raise AssertionError("ScriptedLLM ran out of responses")
         step = self._script.pop(0)
-        if isinstance(step, Exception):
+        if isinstance(step, BaseException):  # includes KeyboardInterrupt, for Ctrl-C tests
             raise step
         return step
 
@@ -46,7 +49,7 @@ class ScriptedLLM:
 class SlowModel(ScriptedLLM):
     """A scripted model whose every call takes `seconds` on a fake clock (anything with `.now`)."""
 
-    def __init__(self, clock, seconds: float, *script: LLMResponse | Exception):
+    def __init__(self, clock, seconds: float, *script: LLMResponse | BaseException):
         super().__init__(*script)
         self._clock, self._seconds = clock, seconds
 

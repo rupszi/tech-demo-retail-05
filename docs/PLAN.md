@@ -281,7 +281,7 @@ Code: `config.py`, `cli/app.py`, `.env.example`, `pyproject.toml`, `tests/test_b
 
 ### Phase 14: Time limit per question
 Code: `config.py`, `agent/graph.py`.
-- [x] `TURN_TIME_BUDGET_SECONDS` (default 120) stops a question between steps with a clear message
+- [x] `TURN_TIME_BUDGET_SECONDS` (default 120) stops a question between steps with a clear message (made a deadline for every model call and query in phase 18)
 - [x] The stop is recorded in the trace, and a test covers it
 
 ### Phase 15: Documentation in step with the code

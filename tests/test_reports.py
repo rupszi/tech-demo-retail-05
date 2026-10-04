@@ -87,3 +87,13 @@ def test_reports_survive_a_restart(tmp_path):
     path = tmp_path / "reports.sqlite"
     ReportStore(path).save("alice", "c", "Kept", "content")
     assert titles(ReportStore(path).list("alice")) == ["Kept"]
+
+
+def test_a_delete_survives_a_restart(tmp_path):
+    path = tmp_path / "reports.sqlite"
+    store = ReportStore(path)
+    report = store.save("alice", "c1", "Q1", "content")
+    store.delete("alice", [report.id])
+    reopened = ReportStore(path)  # a second connection sees only what was committed
+    assert reopened.list("alice") == []
+    assert [entry["action"] for entry in reopened.audit("alice")] == ["save", "delete"]

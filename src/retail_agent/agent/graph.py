@@ -32,7 +32,7 @@ from retail_agent.golden import Trio, find_similar
 from retail_agent.llm import LLM, LLMUnavailable, Message
 from retail_agent.observability import Tracer
 from retail_agent.reports import ReportStore
-from retail_agent.safety import UserProfile, check_input, scrub_text
+from retail_agent.safety import UserProfile, check_input, scrub_text, scrub_value
 
 HISTORY_MESSAGES = 20  # earlier questions and answers kept in the model's context
 
@@ -86,7 +86,8 @@ class AgentDeps:
 
 def _human_duration(seconds: float) -> str:
     if seconds < 90:
-        return f"about {math.ceil(seconds)} seconds"
+        whole = math.ceil(seconds)
+        return f"about {whole} second{'' if whole == 1 else 's'}"
     if seconds < 5400:
         return f"about {round(seconds / 60)} minutes"
     return f"about {round(seconds / 3600)} hours"
@@ -107,11 +108,18 @@ def _context(messages: list[Message], turn_start: int) -> list[Message]:
         for m in messages[:turn_start]
         if m["role"] == "user" or (m["role"] == "assistant" and not m.get("tool_calls"))
     ][-HISTORY_MESSAGES:]
+    # A turn that crashed or was interrupted leaves a question without an answer. Two questions
+    # in a row are not a conversation the model accepts, so the unanswered one is left out.
+    answered = [
+        m
+        for i, m in enumerate(earlier)
+        if m["role"] == "assistant" or (i + 1 < len(earlier) and earlier[i + 1]["role"] != "user")
+    ]
     # Cutting the history can leave an answer without its question; a conversation must start
     # with the user.
-    while earlier and earlier[0]["role"] != "user":
-        earlier.pop(0)
-    return earlier + messages[turn_start:]
+    while answered and answered[0]["role"] != "user":
+        answered.pop(0)
+    return answered + messages[turn_start:]
 
 
 def build_graph(deps: AgentDeps):
@@ -257,8 +265,11 @@ def build_graph(deps: AgentDeps):
                                 "ids": ids,
                                 "reports": [{"id": r.id, "title": r.title} for r in found],
                             }
+                            # The criteria are the model's own words, so they are scrubbed
+                            # before they go into the audit log.
                             requested = {"criteria": args, "titles": [r.title for r in found]}
-                            deps.reports.log(owner, "delete_requested", ids, json.dumps(requested))
+                            detail = json.dumps(scrub_value(requested))
+                            deps.reports.log(owner, "delete_requested", ids, detail)
                             continue
                 else:
                     result = {"error": f"Unknown tool: {name}"}
@@ -292,6 +303,8 @@ def build_graph(deps: AgentDeps):
         decision = interrupt({"action": "delete_reports", "reports": pending["reports"]})
         # Only an explicit yes from the interface counts. Anything else leaves the reports alone.
         approved = isinstance(decision, dict) and decision.get("approved") is True
+        # A new message arrived instead of an answer: the turn is over, nobody waits for the rest.
+        abandoned = isinstance(decision, dict) and decision.get("abandoned") is True
         if approved:
             deleted = deps.reports.delete(owner, pending["ids"])
             titles = "\n".join(f"- {r.title}" for r in deleted)
@@ -309,7 +322,7 @@ def build_graph(deps: AgentDeps):
             "result": result,
         }
         request = next(m for m in reversed(state["messages"]) if m["role"] == "assistant")
-        if len(request["tool_calls"]) > 1:
+        if len(request["tool_calls"]) > 1 and not abandoned:
             # Other tools ran in the same step and their results still need an answer, so the
             # model continues. The outcome is kept in the state and put in front of whatever
             # follows. The time spent waiting for the user is not charged to the question.
