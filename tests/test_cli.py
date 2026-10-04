@@ -74,7 +74,7 @@ def test_a_missing_model_key_is_reported_without_the_bigquery_hint(capsys, monke
 
 
 def test_text_from_users_and_the_model_is_shown_as_written(monkeypatch, capsys):
-    """Rich reads square brackets as formatting; an unmatched one used to end the chat."""
+    """Rich reads square brackets as formatting; an unmatched one would end the chat."""
     from types import SimpleNamespace
 
     from rich.console import Console

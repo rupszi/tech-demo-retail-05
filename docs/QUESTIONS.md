@@ -2,22 +2,22 @@
 
 The brief invites questions. This page lists the twelve that were asked, the assumption the project was built on while waiting, the client's answer, and what the answer changed.
 
-**Sent on 2026-10-04. All twelve were answered the same day.** Most answers confirmed the assumptions. The ones that did not are planned as phases 10 to 16 in [PLAN.md, section 9](PLAN.md#9-revision-after-the-clients-answers), and their progress is in the [tracker](TRACKER.md).
+**Sent on 2026-10-04. All twelve were answered the same day.** Most answers confirmed the assumptions. The ones that did not changed the code or the design, as the last column shows.
 
 | # | Topic | Answer in short | Result |
 |---|---|---|---|
-| 1 | Which products a user may analyse | Each user sees only their brands; the CEO sees all | **Changed:** scope is by brand only (phase 11) |
+| 1 | Which products a user may analyse | Each user sees only their brands; the CEO sees all | **Changed:** scope is by brand only |
 | 2 | What counts as personal data | The assumed list; customer IDs are fine; demographics per individual are fine | Confirmed |
-| 3 | Saved Reports library | Ours to design; any term; no recovery needed; no sharing | **Changed:** deleting is permanent (phase 12) |
+| 3 | Saved Reports library | Ours to design; any term; no recovery needed; no sharing | **Changed:** deleting is permanent |
 | 4 | Confirmation before deleting | Yes, one confirmation is enough | Confirmed |
-| 5 | Golden Knowledge bucket | Theoretical; JSON; about 1,000 trios; think about hundreds of users | Confirmed, and the design is extended (phase 15) |
-| 6 | Local test data | Fine, but test on BigQuery as well | **Changed:** a BigQuery test group, and BigQuery by default (phase 13) |
-| 7 | Identity and permissions | The front end sends a JWT with the user's scopes | **Changed:** profiles come from token claims (phases 11 and 15) |
-| 8 | Scale and response time | Assumptions are good; long reports may take one to two minutes | Confirmed, and a time limit is added (phase 14) |
-| 9 | Channels and integrations | Web chat over an API; Slack outputs maybe later | Confirmed; the design treats Slack as an output (phase 15) |
-| 10 | Who changes the assistant's tone | One non-developer; an automated quality gate | **Changed** in the design (phase 15) |
-| 11 | Data residency and compliance | No compliance requirements | Simplifies the design (phase 15) |
-| 12 | Cost limits | Configurable; assume $1 per question; design only | **Changed** in the design (phase 15) |
+| 5 | Golden Knowledge bucket | Theoretical; JSON; about 1,000 trios; think about hundreds of users | Confirmed, and the design is extended |
+| 6 | Local test data | Fine, but test on BigQuery as well | **Changed:** a BigQuery test group, and BigQuery by default |
+| 7 | Identity and permissions | The front end sends a JWT with the user's scopes | **Changed:** profiles come from token claims |
+| 8 | Scale and response time | Assumptions are good; long reports may take one to two minutes | Confirmed, and a time limit is added |
+| 9 | Channels and integrations | Web chat over an API; Slack outputs maybe later | Confirmed; the design treats Slack as an output |
+| 10 | Who changes the assistant's tone | One non-developer; an automated quality gate | **Changed** in the design |
+| 11 | Data residency and compliance | No compliance requirements | Simplifies the design |
+| 12 | Cost limits | Configurable; assume $1 per question; design only | **Changed** in the design |
 
 ---
 
@@ -54,7 +54,7 @@ The brief says: "Each user should only be able to analyze data on products relat
 2. Yes.
 3. Showing them for an individual is fine.
 
-**What it changes.** Nothing in the code. The documents no longer list demographics per customer as an open point, and no minimum group size is needed.
+**What it changes.** Nothing in the code. Showing demographics per customer is settled, and no minimum group size is needed.
 
 ### 3. Saved Reports library
 

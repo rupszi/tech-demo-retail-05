@@ -21,7 +21,6 @@ data/*.duckdb
 data/*.sqlite
 data/*.sqlite-journal
 logs/
-.traces/
 
 # OS / editor
 .DS_Store

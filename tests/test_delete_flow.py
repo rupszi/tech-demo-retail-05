@@ -322,7 +322,7 @@ def test_a_report_title_is_scrubbed_too(chat):
 
 
 def test_a_nul_character_in_the_search_text_cannot_widen_a_delete(session):
-    """SQLite's LIKE stops reading at a NUL, which turned "\\x00Texas" into "every report"."""
+    """SQLite's LIKE stops reading at a NUL, so "\\x00Texas" would match every report."""
     s = session(says("", call("delete_reports", mentioning="\x00Texas")), says("I could not."))
     result = s.ask("Delete the Texas reports")
     assert result.confirmation is None and not s.awaiting_confirmation

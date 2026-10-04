@@ -2,9 +2,9 @@
 
 This document records the decisions made while building the project, in the order they were made, with the reasoning behind each one. It is written for a reader who was not in the room: every entry says what the situation was, what was decided, what else was considered, what it costs, and how it is checked.
 
-It is updated with the work it describes. On 2026-10-04 the client answered our questions ([QUESTIONS.md](QUESTIONS.md)); entries that changed because of an answer say so. If a decision looks wrong or a reason is unclear, please ask or challenge it: each entry names the code and tests that implement it, so a question can be answered by pointing at something concrete. Questions that only the client can answer are in [QUESTIONS.md](QUESTIONS.md), with the assumption used for each.
+On 2026-10-04 the client answered our questions ([QUESTIONS.md](QUESTIONS.md)); entries that changed because of an answer say so. If a decision looks wrong or a reason is unclear, please ask or challenge it: each entry names the code and tests that implement it, so a question can be answered by pointing at something concrete. Questions that only the client can answer are in [QUESTIONS.md](QUESTIONS.md), with the assumption used for each.
 
-Related documents: [DESIGN.md](DESIGN.md) (how the system works), [PLAN.md](PLAN.md) (scope, phases, exit gates), [TRACKER.md](TRACKER.md) (progress).
+Related documents: [DESIGN.md](DESIGN.md) (how the system works), [REQUIREMENTS.md](REQUIREMENTS.md) (the brief item by item).
 
 ## Index
 
@@ -353,7 +353,7 @@ These decisions were made while building and running the agent. Several of them 
 
 **Why errors are cheap.** A parse error is caught by the SQL gate without touching BigQuery. A semantic error is caught by BigQuery's dry-run, which is free. Only valid queries are billed.
 
-**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 50 seconds, 27 of them waiting. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is a deadline. Every model call is given the time that is left as its own timeout, the retry logic stops when that time is used up, and a query gets the remaining time as its job timeout. The first version only checked the clock between steps; a review pointed out that a step in which every call hung could then run for many minutes, and the deadline closed that. The time a user takes to answer a confirmation is not counted.
+**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 50 seconds, 27 of them waiting. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is a deadline. Every model call is given the time that is left as its own timeout, the retry logic stops when that time is used up, and a query gets the remaining time as its job timeout. The first version only checked the clock between steps, which left a gap: a step in which every call hung could have run for many minutes. The deadline closes it. The time a user takes to answer a confirmation is not counted.
 
 **Announcing the last step.** The first recording of "Why did our churn rate spike last month?" ran eight queries, one per step, reached the limit on model calls and showed the limit message. The cost was bounded, but the work was thrown away. Now, when one model call is left, every tool result carries an instruction to answer from what has been found and to say what could not be checked. Recorded again, the same question ends in an answer on its eighth call.
 
@@ -494,7 +494,7 @@ The brief limits the prototype to four requirements, and the client asked for th
 
 ### D-30. The tests are checked by breaking the code on purpose
 
-**Situation.** A test suite can be large and still prove little: a test may assert something that stays true when the feature is broken, and whole paths may have no test at all. A review of the tests pointed at both. The confirmation prompt of the CLI, for one, was only ever tested with "y" and "n" typed in, and no test ran the chat loop itself.
+**Situation.** A test suite can be large and still prove little: a test may assert something that stays true when the feature is broken, and whole paths may have no test at all. Both were true here: the confirmation prompt of the CLI was at first tested only with "y" and "n" typed in, and no test ran the chat loop itself.
 
 **Decision.** `tests/mutation_check.py` copies the repository, breaks one rule in the copy, runs the offline suite, and reports whether a test failed. It does this for 101 rules, one at a time: no brand filter, personal data columns exposed, a delete carried out whatever the user answers, the interface passing on the opposite of the answer, retries that ignore the deadline, a trace that is not scrubbed, and so on. It is run on request and takes about five minutes.
 

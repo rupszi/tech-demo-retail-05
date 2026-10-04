@@ -15,7 +15,7 @@ from dataclasses import dataclass
 MAX_INPUT_CHARS = 4000  # a question is a few lines; far more is not a question
 
 # Invisible characters that can be put inside a word to slip it past a pattern.
-_ZERO_WIDTH = dict.fromkeys(map(ord, "​‌‍⁠﻿"))
+_ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"))
 # A request for personal data names a kind of personal detail and the people it belongs to.
 # "Customers acquired via Email" has one without the other, and is a normal question.
 _PEOPLE = r"(?:customers?|users?|buyers?|shoppers?|clients?|people)"

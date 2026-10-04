@@ -70,7 +70,7 @@ BREAKS = [
         "        if False:",
     ),
     (
-        "a WITH name is trusted anywhere in the query (the original bypass)",
+        "a WITH name is trusted anywhere in the query (see D-10)",
         "src/retail_agent/safety/validator.py",
         "        visible = {name.lower() for name in scope.cte_sources}\n",
         "        visible = {cte.alias.lower() for cte in tree.find_all(exp.CTE)}\n",
