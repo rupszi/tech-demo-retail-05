@@ -1,0 +1,15 @@
+{
+  "question": "Who are our top customers by total spend?",
+  "tags": [
+    "top",
+    "customers",
+    "best",
+    "spend",
+    "spenders",
+    "loyal"
+  ],
+  "sql": "SELECT oi.user_id AS customer_id,\n       u.country,\n       COUNT(DISTINCT oi.order_id) AS orders,\n       ROUND(SUM(oi.sale_price), 2) AS total_spend\nFROM order_items AS oi\nJOIN users AS u ON u.id = oi.user_id\nWHERE oi.status NOT IN ('Cancelled', 'Returned')\nGROUP BY customer_id, u.country\nORDER BY total_spend DESC\nLIMIT 10",
+  "report": "Customers are always identified by customer ID, never by name or contact details. Report total spend together with the number of orders, because a single very large order and a loyal repeat buyer call for different actions.",
+  "author": "analytics team",
+  "created": "2025-06-01"
+}

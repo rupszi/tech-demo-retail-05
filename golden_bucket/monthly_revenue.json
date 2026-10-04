@@ -1,0 +1,15 @@
+{
+  "question": "What is our monthly revenue trend?",
+  "tags": [
+    "monthly",
+    "revenue",
+    "trend",
+    "sales",
+    "time",
+    "month"
+  ],
+  "sql": "SELECT FORMAT_TIMESTAMP('%Y-%m', created_at) AS month,\n       ROUND(SUM(sale_price), 2) AS revenue,\n       COUNT(DISTINCT order_id) AS orders\nFROM order_items\nWHERE status NOT IN ('Cancelled', 'Returned')\nGROUP BY month\nORDER BY month",
+  "report": "Revenue is the sum of the sale price of items that were not cancelled or returned. The current month is incomplete, so say so and do not compare it directly with full months. Mention seasonality when comparing months: November and December are always the strongest.",
+  "author": "analytics team",
+  "created": "2025-06-01"
+}
