@@ -61,10 +61,10 @@ class LLMError(Exception):
 
 
 class LLMUnavailable(LLMError):
-    """Every model and every retry failed."""
+    """Every model and every retry failed. `retry_after` is set when rate limits are the cause."""
 
-    def __init__(self, message: str):
-        super().__init__(message, transient=True)
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message, transient=True, retry_after=retry_after)
 
 
 class LLM(Protocol):

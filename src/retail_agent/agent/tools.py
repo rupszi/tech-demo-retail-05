@@ -100,11 +100,11 @@ class Toolbox:
             try:
                 result = self._execute(sql)
             except SqlRejected as e:
-                step.update(error=e.code, rejected=True)
+                step.update(error=e.code, error_message=e.message[:300], rejected=True)
                 failures = failures + 1 if e.retryable else limit + 1
                 return self._failure(e.message, failures), failures, empties
             except DataError as e:
-                step.update(error=e.kind)
+                step.update(error=e.kind, error_message=e.message[:300])
                 if e.kind == "unavailable":  # not the model's fault: do not ask it to rewrite
                     message = "The data warehouse is temporarily unavailable."
                     return {"error": message, "instruction": _STOP}, limit + 1, empties

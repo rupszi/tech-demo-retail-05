@@ -185,8 +185,11 @@ def _step_detail(step: dict) -> str:
     """A one-line summary. The full record, including the SQL that ran, is in the trace file."""
     if step["kind"] == "sql":
         sql = " ".join(step.get("sql", "").split())
-        result = f"error: {step['error']}" if "error" in step else f"{step.get('rows')} rows"
+        problem = f"{step.get('error')}: {step.get('error_message', '')[:60]}"
+        result = problem if "error" in step else f"{step.get('rows')} rows"
         return f"{result} · {sql[:90]}{'…' if len(sql) > 90 else ''}"
+    if step["kind"] == "sql_retry" or step["kind"] == "llm_retry":
+        return f"attempt {step.get('attempt', 1)} failed: {step.get('error', '')[:70]}"
     if step["kind"] == "llm" and "error" not in step:
         calls = ", ".join(step.get("tool_calls", [])) or "final answer"
         tokens = f"{step.get('tokens_in')}+{step.get('tokens_out')} tokens"

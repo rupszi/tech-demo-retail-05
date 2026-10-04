@@ -6,10 +6,30 @@ from retail_agent.llm.gemini import _to_contents
 from .fakes import ScriptedLLM, permanent, says, transient
 
 
+class FakeTime:
+    """A clock that only moves when the code under test sleeps."""
+
+    def __init__(self):
+        self.now = 1000.0
+        self.sleeps = []
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+    def clock(self):
+        return self.now
+
+
 def resilient(*models, **kwargs):
-    sleeps = []
-    llm = ResilientLLM(models, sleep=sleeps.append, **kwargs)
-    return llm, sleeps
+    fake = FakeTime()
+    llm = ResilientLLM(models, sleep=fake.sleep, clock=fake.clock, **kwargs)
+    llm.time = fake
+    return llm, fake.sleeps
+
+
+def rate_limited(seconds):
+    return LLMError("429 rate limit", transient=True, retry_after=seconds)
 
 
 def test_success_needs_no_retry():
@@ -56,18 +76,38 @@ def test_raises_unavailable_when_everything_fails():
         llm.generate("s", [], [])
 
 
-def test_the_wait_asked_for_by_the_provider_is_honoured():
-    model = ScriptedLLM(LLMError("429", transient=True, retry_after=3.0), says("ok"))
+def test_a_short_wait_asked_for_by_the_provider_is_waited_out():
+    model = ScriptedLLM(rate_limited(3.0), says("ok"))
     llm, sleeps = resilient(model)
     assert llm.generate("s", [], []).text == "ok" and sleeps == [3.5]
 
 
-def test_a_long_requested_wait_falls_back_instead_of_waiting():
-    primary = ScriptedLLM(LLMError("429", transient=True, retry_after=45.0))
-    fallback = ScriptedLLM(says("from fallback"))
-    llm, sleeps = resilient(primary, fallback, max_delay=20.0)
-    assert llm.generate("s", [], []).text == "from fallback"
+def test_a_rate_limited_model_is_rested_and_skipped_until_it_may_be_called_again():
+    primary = ScriptedLLM(rate_limited(40.0), says("primary is back"))
+    fallback = ScriptedLLM(says("fallback 1"), says("fallback 2"))
+    llm, sleeps = resilient(primary, fallback)
+
+    assert llm.generate("s", [], []).text == "fallback 1"  # falls back at once, no waiting
+    assert llm.generate("s", [], []).text == "fallback 2"  # primary is not even tried
     assert primary.calls == 1 and sleeps == []
+
+    llm.time.now += 41  # the rest period is over
+    assert llm.generate("s", [], []).text == "primary is back"
+
+
+def test_when_every_model_is_rate_limited_the_soonest_one_is_waited_for():
+    primary = ScriptedLLM(rate_limited(60.0))
+    fallback = ScriptedLLM(rate_limited(12.0), says("after the wait"))
+    llm, sleeps = resilient(primary, fallback)
+    assert llm.generate("s", [], []).text == "after the wait"
+    assert sleeps == [12.5] and primary.calls == 1
+
+
+def test_when_every_model_is_rate_limited_for_long_the_user_is_told_how_long():
+    llm, sleeps = resilient(ScriptedLLM(rate_limited(60.0)), ScriptedLLM(rate_limited(45.0)))
+    with pytest.raises(LLMUnavailable) as e:
+        llm.generate("s", [], [])
+    assert sleeps == [] and e.value.retry_after == 45.0
 
 
 def test_retry_delay_is_read_from_a_gemini_rate_limit_error():

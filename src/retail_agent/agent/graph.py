@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import math
 import operator
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
@@ -33,6 +34,9 @@ HISTORY_MESSAGES = 20  # earlier questions and answers kept in the model's conte
 
 MSG_UNAVAILABLE = (
     "I can't reach the language model right now. Nothing was lost; please try again in a moment."
+)
+MSG_RATE_LIMITED = (
+    "The language model's rate limit has been reached. Please try again in about {seconds} seconds."
 )
 MSG_BUDGET = (
     "I reached the work limit for a single question before finishing. "
@@ -130,6 +134,9 @@ def build_graph(deps: AgentDeps):
                 )
             except LLMUnavailable as e:
                 step["error"] = str(e)[:300]
+                if e.retry_after:
+                    seconds = math.ceil(e.retry_after)
+                    return finish(MSG_RATE_LIMITED.format(seconds=seconds), "failed")
                 return finish(MSG_UNAVAILABLE, "failed")
             step.update(
                 model=response.model,
