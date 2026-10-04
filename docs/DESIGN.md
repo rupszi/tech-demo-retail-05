@@ -9,6 +9,7 @@ This document describes how the system works in production and how the prototype
 | The picture | [Architecture](#1-architecture) |
 | What happens when a question is asked | [How a question is answered](#2-how-a-question-is-answered) |
 | How each requirement in the brief is met | [The eight requirements](#3-the-eight-requirements) |
+| Every item of the brief with its status and where to see it | [REQUIREMENTS.md](REQUIREMENTS.md) |
 | Why these services, models and framework | [Technology choices](#4-technology-choices-and-why) |
 | What fails and what happens then | [Error handling and fallbacks](#5-error-handling-and-fallbacks) |
 | How it is deployed, secured and kept running | [Running it in production](#7-running-it-in-production) |

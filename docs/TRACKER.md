@@ -83,7 +83,7 @@ From phase 18: four independent reviews of the repository as it stood after the 
 | ID | Deliverable | Where | Status |
 |---|---|---|:-:|
 | D1 | Architecture diagram with service choices explained | [DESIGN.md, section 1](DESIGN.md#1-architecture) | ✅ |
-| D2 | Technical explanation: choices, data flow, error handling, setup and example run, each requirement | [DESIGN.md](DESIGN.md), [README](../README.md), [EXAMPLE_RUN.md](EXAMPLE_RUN.md) | ✅ |
+| D2 | Technical explanation: choices, data flow, error handling, setup and example run, each requirement | [DESIGN.md](DESIGN.md), [REQUIREMENTS.md](REQUIREMENTS.md), [README](../README.md), [EXAMPLE_RUN.md](EXAMPLE_RUN.md) | ✅ |
 | D3 | Working prototype: safety, oversight, resilience, observability | `src/retail_agent/` | ✅ |
 | D4 | CLI chat interface | `uv run retail-agent` | ✅ |
 | D5 | Runnable on another machine | [README](../README.md), verified from a fresh clone | ✅ |
@@ -167,3 +167,4 @@ The full wording, the assumption used for each and what each answer changed are 
 | 2026-10-04 | Phase 18: two independent code reviews; their findings fixed or recorded; tests added for the chat loop and the Gemini adapter; the break check grown to 95 rules and added to the repository |
 | 2026-10-04 | Phase 18: recording the sessions again showed a question lost to two queries in one call; fixed, and all three sessions recorded with the final code |
 | 2026-10-04 | Phase 18: two more reviews, of the documents against the code and of coverage of the brief; their findings fixed or recorded; the design gained a section on running the system; the sessions recorded once more with a follow-up, a product comparison and an off-topic question; full verification repeated |
+| 2026-10-04 | A page was added that goes through the brief item by item, with the status of each and where to see it (`REQUIREMENTS.md`) |

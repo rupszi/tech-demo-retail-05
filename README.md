@@ -2,7 +2,7 @@
 
 A command-line chat assistant for a retail company's executives. Ask about sales, customers and products in plain language; it queries the BigQuery `thelook_ecommerce` dataset, explains what it finds, and writes reports with action items.
 
-Built for the OpsFleet technical assignment. The design is in [docs/DESIGN.md](docs/DESIGN.md); this page is how to run it.
+Built for the OpsFleet technical assignment. The design is in [docs/DESIGN.md](docs/DESIGN.md), and [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) goes through the brief item by item: what was asked, how it is met, and where to see it. This page is how to run it.
 
 What the prototype does:
 
@@ -226,13 +226,14 @@ src/retail_agent/
 config/            sample token payloads for the demo users, and the tone file
 golden_bucket/     sample analyst examples (question, SQL, report)
 tests/             767 offline tests, 79 against BigQuery, and a check of the tests themselves
-docs/              design, decisions, example run, plan, tracker, client questions
+docs/              requirements, design, decisions, example run, plan, tracker, client questions
 ```
 
 ## Documents
 
 | Document | What it is |
 |---|---|
+| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | Every item of the brief: its status, how it is met, and where to see it |
 | [docs/DESIGN.md](docs/DESIGN.md) | Architecture diagram, technology choices, data flow, error handling, and how each requirement is met |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Each decision with its reasons, the alternatives considered and how it is verified |
 | [docs/EXAMPLE_RUN.md](docs/EXAMPLE_RUN.md) | Three recorded sessions against BigQuery |
