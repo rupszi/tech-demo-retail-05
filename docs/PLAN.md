@@ -23,7 +23,7 @@ Assessment focus: system design, the technical explanation, and an elegant proto
 | 3 | High-stakes oversight (destructive ops) | **yes** | yes |
 | 4 | Continuous improvement (user and system loops) | no | yes |
 | 5 | Resilience and graceful error handling | **yes** | yes |
-| 6 | Quality assurance | 662 offline tests and 79 against BigQuery | yes |
+| 6 | Quality assurance | 762 offline tests and 79 against BigQuery | yes |
 | 7 | Observability | **yes** | yes |
 | 8 | Agility (persona management) | tone file read on every question | yes |
 
@@ -75,7 +75,7 @@ This section describes what is built today, including the revision in section 9.
 - **Resilience**: bounded self-correction with errors classified by whether a retry can help; retries with backoff and jitter; a rate-limited model is rested and the next one answers; limits per question on model calls, tokens and time, where the time limit is a deadline handed to every model call and query; nothing crashes the interface.
 - **Observability**: one structured trace per question (JSONL), with the metrics computed from the same file; `/trace` and `/stats`.
 - **Golden bucket**: a local folder of analyst examples, retrieved by similarity to the question and added to the model's instructions.
-- **Tests**: an offline suite, and an opt-in group that checks the same rules on the real BigQuery dataset.
+- **Tests**: an offline suite, an opt-in group that checks the same rules on the real BigQuery dataset, and a script that checks the tests themselves by breaking the code on purpose.
 - **Extensibility**: a new capability is a tool; a new data source is a `DataBackend` with a policy; a new channel calls `ChatSession`.
 
 ### Layout
@@ -328,5 +328,5 @@ Code: `agent/graph.py`, `agent/tools.py`, `llm/`, `data/`, `safety/gateway.py`, 
 | 13 | `test_bigquery_live.py` (opt-in); default backend; startup message | `conftest.py`, `test_smoke.py` | |
 | 14 | A question that exceeds the time limit stops with a message and a trace event | | |
 | 17 | The trace names the analyst examples given to the model, and which limit stopped a question; the model is told when its last step has come; a business question containing "the story behind" is not blocked | `test_agent.py`, `test_guard.py` | |
-| 18 | The deadline: model calls and queries are given the time left, retries and waits stop at it, a model failure that used up the time is reported as the time limit. A query asked for with a delete is answered, the outcome first, also when the model fails; one delete per question; waiting for the user is not charged. A trace names the model that answered. Two more hostile queries | The time-limit test (it now moves a clock, not a list of readings) | |
+| 18 | The deadline: model calls and queries are given the time left, retries and waits stop at it, a model failure that used up the time is reported as the time limit. A query asked for with a delete is answered, the outcome first, also when the model fails; one delete per question; waiting for the user is not charged. A trace names the model that answered. After the reviews: `test_cli_chat.py` (the chat loop and the confirmation prompt, end to end), `test_gemini.py` (the adapter against a stand-in client), per-question resets, the report tools, history trimming, exact metric values, seven more hostile queries, and `mutation_check.py` | The time-limit test (it now moves a clock, not a list of readings); the metrics test; the examples test | |
 

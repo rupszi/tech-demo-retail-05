@@ -31,7 +31,7 @@ Three ideas shape the design.
 | 3 | High-stakes oversight | **Built and tested** | [3.3](#33-high-stakes-oversight) |
 | 4 | Continuous improvement | Design | [3.4](#34-continuous-improvement) |
 | 5 | Resilience and graceful error handling | **Built and tested** | [3.5](#35-resilience) |
-| 6 | Quality assurance | 662 offline tests and 79 against BigQuery; evaluation design | [3.6](#36-quality-assurance) |
+| 6 | Quality assurance | 762 offline tests and 79 against BigQuery; evaluation design | [3.6](#36-quality-assurance) |
 | 7 | Observability | **Built and tested** | [3.7](#37-observability) |
 | 8 | Agility (tone without redeployment) | Tone file read on every question; design for the rest | [3.8](#38-agility-changing-the-tone-without-a-deployment) |
 
@@ -331,7 +331,7 @@ The brief has three requirements here: only analysis questions, no personal data
 | **Column allow-list** | Personal data columns | `safety/scoping.py`, `safety/policy.py` |
 | Database permissions | Writes, other data, and personal data columns, refused again by BigQuery | Production only, on the company's own data |
 | Output scrubber | Personal data that reached text anyway | `safety/scrubber.py`; Sensitive Data Protection in production |
-| Log hygiene | Personal data in traces | Questions and answers are scrubbed before logging |
+| Log hygiene | Personal data in traces and in the audit log | Everything written to either is scrubbed first: the question and the answer, and also the SQL and the error texts |
 
 The three layers in bold are the guarantees. The others reduce cost and noise, or back the guarantees up.
 
@@ -347,11 +347,13 @@ The three layers in bold are the guarantees. The others reduce cost and noise, o
 | Disguising a table with a `WITH` name | Rejected: scope analysis decides what a name refers to |
 | Calling user-defined, remote, ML or AI functions | Rejected: namespaced functions are denied by default |
 | Hiding text in SQL comments | Removed: only SQL regenerated from the syntax tree is executed |
-| A huge query to run up cost | Refused by the dry-run and capped by BigQuery's byte limit |
+| A huge query to run up cost | Refused by the dry-run and capped by BigQuery's byte limit; a query that runs out of time is cancelled |
+| Reading system variables such as `@@project_id`, or using query parameters | Rejected: no analysis needs them |
+| A report title with terminal formatting in it, to hide or change what a confirmation shows | Shown as written: text from users and the model is never read as formatting |
 | Instructions planted in data or in a saved report | The model is told results are data; and it still has no harmful tool |
 | A token with no brand scope, or with scopes of another kind | Sees nothing: access is denied unless a brand scope grants it |
 
-The test suite contains 75 hostile queries, all rejected, and 24 legitimate analytical queries, all accepted, for each of three user profiles.
+The test suite contains 80 hostile queries, all rejected, and 24 legitimate analytical queries, all accepted, for each of three user profiles.
 
 **Personal data.** The client confirmed the list: names, email, address, postal code and coordinates. These are seven columns of `users`. The real `users` table only ever appears inside a subquery that selects the remaining columns by name, so `SELECT *` and whole-row expressions cannot reach them. Customers are identified by ID, which the client confirmed is fine and which keeps "top customers" working. Age, gender, city, state and country may be shown for an individual customer; the client confirmed this too. Details are in [D-09](DECISIONS.md#d-09-personal-data-is-kept-out-by-a-column-allow-list-customers-are-shown-by-id).
 
@@ -403,9 +405,10 @@ sequenceDiagram
 
 What makes it strict:
 
-- **The decision does not pass through the model.** The graph pauses in a step of its own. Only the interface can resume it, with the user's answer. The model has no tool that confirms, and extra arguments such as `confirmed: true` are ignored. A "yes" typed into the chat is a new message, not a confirmation.
+- **The decision does not pass through the model.** The graph pauses in a step of its own. Only the interface can resume it, with the user's answer. The model has no tool that confirms, and extra arguments such as `confirmed: true` are ignored. A "yes" typed into the chat is a new message, not a confirmation: it cancels the pending request and ends that turn.
 - **What is confirmed is what is deleted.** The matching report ids are stored in the conversation state when the list is shown. The delete uses those ids, not a new search, so a report created in the meantime is not swept in.
 - **Ownership is checked in the store.** Every query on reports is filtered by owner. A request naming another user's report id finds nothing.
+- **The request is checked, not guessed.** The arguments of a delete request come from the model. A value of the wrong type, such as text where a list of ids is expected, is refused; it is never interpreted.
 - **Deleting is permanent, and the user is told so.** The rows are removed; there is no restore function. The confirmation says that the deletion cannot be undone, and so does the outcome. Because nothing can be undone, the confirmation is the safeguard, which is why it lists the exact titles.
 - **The outcome is reported by the application.** After a delete, the message "Deleted 2 reports" is written by code. An earlier version asked the model to phrase it; in a real run the model call was rate-limited after the delete had happened, and the user was told to try again. The result of a confirmed action must not depend on the model.
 - **Everything is audited.** The request, and the confirmation or the cancellation, are written to an audit log with the report ids. The titles of what was requested and of what was deleted are kept there, so the record survives the reports.
@@ -465,6 +468,8 @@ This loop was run by hand while building the prototype, which shows what it look
 | Every call retrying a rate-limited model | No memory of the rate limit | The model is rested for as long as the provider asks |
 | "Try again" shown after a delete had succeeded | Outcome message depended on the model | The application reports the outcome |
 | A "why" question ran eight exploratory queries, reached the work limit and showed nothing | The model was not told that its steps were running out | The tool results announce the last step, so the work ends in an answer |
+| A question lost all its queries after the model put two queries into one call | That was treated like forbidden SQL, which ends the attempts | Several plain queries in one call are an honest mistake: the model is told to send one per call and may try again |
+| Every "top 5" result came with a note that it was cut off | The note compared the rows with the query's own LIMIT, not with our row limit | Only our own row limit counts as cut off |
 
 ### 3.5 Resilience
 
@@ -480,9 +485,11 @@ The brief asks that errors and empty results are detected and corrected before g
 | The query would scan too much | Dry-run estimate, and BigQuery's byte cap | The model must narrow it; counts as a failure |
 | No rows | Result is empty | First time: a hint to check filter values. Second time: stop and say no data matched |
 | BigQuery unavailable | Error class | The same SQL is retried once; the model is not asked to rewrite a correct query |
-| More rows than the limit | Result reached the limit | The result is marked incomplete and the model is told to aggregate |
+| More rows than the limit | Result reached our row limit (a smaller LIMIT that the query chose itself is a complete answer) | The result is marked incomplete and the model is told to aggregate |
+| The query runs out of time | Our own timeout | The job is cancelled and the model is told to narrow the query; the same SQL is not run again |
+| Several queries in one call | SQL gate | The model is told to send one query per call; counts as one failure |
 
-After the retry limit, no further query runs for that question and the model is told to explain plainly what it could not do. In the recorded sessions three of 23 queries failed on real BigQuery, and each was corrected on the next attempt.
+After the retry limit, no further query runs for that question and the model is told to explain plainly what it could not do. In the recorded sessions one of 21 queries failed on real BigQuery and was corrected on the next attempt.
 
 **Bounded cost and time.**
 
@@ -493,7 +500,7 @@ After the retry limit, no further query runs for that question and the model is 
 - Old result tables are not resent with every turn.
 - BigQuery caps the bytes a query may bill.
 
-Observed over the three recorded sessions: about 8,800 tokens and 2.4 model calls per question on average, about 10 MB scanned per query at most, and a median of 4.7 seconds per answer.
+Observed over the three recorded sessions: about 8,700 tokens and 2.4 model calls per question on average, about 10 MB scanned per query at most, and a median of 4.4 seconds per answer. The number of queries in a question is not counted on its own: a step may ask for several at once, and what bounds them is the limit on model calls, the time limit and the cap of 1 GB on each.
 
 **How long an answer may take.** The client accepts the assumed response times and allows one to two minutes for long reports. Ordinary questions are answered in seconds. A long report is produced within the same request, with progress shown, and the time limit stops anything that runs longer. No background job is needed.
 
@@ -513,22 +520,24 @@ The prototype does not compute dollars. It applies the limits directly: model ca
 - A timeout or server error is retried with exponential backoff and jitter.
 - A rate limit that asks for a short wait is waited out.
 - A rate limit that asks for a long wait rests that model for exactly that long, and the next model in the list answers meanwhile. This is a circuit breaker whose timing is set by the provider.
-- If every model is resting, the soonest one is waited for, up to a minute, with a message in the interface. Beyond that, the user is told how long to wait.
+- If no model answered and a rate-limited one is due back within a minute, it is waited for, with a message in the interface, and tried once more. Beyond that, the user is told how long to wait.
+- Content that the provider refuses is not sent to the same model again; an unexpected error inside the SDK counts as that model's failure, and the next model gets its turn.
 
-This was exercised for real: on the free tier the two larger models allow 20 requests a day, and the recorded sessions were answered almost entirely by the third model without the user doing anything.
+This was exercised for real: on the free tier the two larger models allow 20 requests a day, and the recorded sessions were answered entirely by the third model without the user doing anything. One answer waited 59 seconds for that model's per-minute limit to clear.
 
-**Never crashing the interface.** A failing tool returns an error to the model instead of raising. An unexpected exception anywhere in a turn is caught at the session boundary, recorded in the trace with its cause, and turned into a short apology. The conversation continues.
+**Never crashing the interface.** A failing tool returns an error to the model instead of raising. An unexpected exception anywhere in a turn is caught at the session boundary, recorded in the trace with its cause, and turned into a short apology. The conversation continues, and the question that failed is left out of what the model is shown next. Ctrl-C while a question is being worked on drops that question and keeps the chat. A trace that cannot be written does not cost the answer. A wrong value in the settings is reported by name at start. Text that comes from users, the model or an error is never read as terminal formatting.
 
 **In production, additionally:** conversation state in PostgreSQL so a restarted container resumes mid-conversation; rest periods shared between instances; provisioned model capacity so that rate limits are rare.
 
 ### 3.6 Quality assurance
 
-**Before deployment.** Four kinds of checks, from cheapest to most expensive.
+**Before deployment.** Five kinds of checks, from cheapest to most expensive. The first four exist in the prototype; the fifth is design.
 
-1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 662 tests that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results.
-2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. These are also in the 662.
+1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 762 tests that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results.
+2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. The chat loop and its confirmation prompt are run end to end the same way, with typed lines. The Gemini adapter is tested against a stand-in for the SDK client that returns real SDK objects, so what is sent to Gemini and how its answers are read are covered without a network. These are also in the 762.
 3. **The same rules on the real dataset.** A further group of 79 tests runs against BigQuery on request, as the client suggested: the schema, every legitimate query after the gate has rewritten it (as free dry-runs), brand scope and personal data on real data, and every analyst example.
-4. **Evaluation with the real model.** A fixed set of questions run against the real model and a fixed copy of the data, scored automatically:
+4. **A check on the tests themselves.** Ninety-five rules were broken on purpose, one at a time, in a copy of the repository: no brand filter, a delete carried out whatever the user answers, the interface passing on the opposite of the answer, and so on. Every one made a test fail. The first run of this check found gaps, which is how the tests for the chat loop and the adapter came to be written.
+5. **Evaluation with the real model.** A fixed set of questions run against the real model and a fixed copy of the data, scored automatically:
    - *Result accuracy.* For questions with a known answer (the golden trios supply them), the result of the assistant's query is compared with the result of the analyst's query. Comparing results, not SQL text, accepts any correct query.
    - *Grounding.* Every figure in an answer must appear in, or follow from, the query results of that turn. This is a mechanical check, and it is the one that would have caught the wrongly added total described in 3.4.
    - *Safety set.* Questions that must be refused or must return nothing outside the user's scope.
@@ -572,7 +581,7 @@ These come from the traces. They are complemented by moderated sessions with a f
 | Budget | That the model was told its last step had come; and which limit was reached: model calls, tokens or time |
 | Unexpected error | Type and message |
 
-Questions and answers are scrubbed for personal data before they are logged. Result rows are never logged, only their count.
+Everything in a trace is scrubbed for personal data before it is written: the question and the answer, and also the SQL and the error texts, which can repeat something a user typed. Result rows are never logged, only their count. A trace that cannot be written does not affect the answer, and a damaged line in the file costs that one trace, not the log.
 
 A model step is named after the model that answered it, so a fallback to another model is visible at a glance. A step that no model answered is named `unanswered` and carries the error.
 
@@ -583,8 +592,8 @@ A model step is named after the model that answered it, so a fallback to another
 | Share answered, blocked, gave up, failed | The headline: is it working? |
 | Latency, median and 95th percentile | Experience. Waiting for a confirmation is excluded |
 | Tokens and model calls per question | Cost |
-| Model retries | Provider health |
-| Query error rate, and the share of those that recovered | Whether the model writes valid SQL, and whether self-correction works |
+| Failed model attempts (each is followed by a retry, a fallback or an error) | Provider health |
+| Query error rate, and the share of questions that recovered: a later query succeeded after one had failed | Whether the model writes valid SQL, and whether self-correction works |
 | Empty-result rate | Misunderstood filters or genuinely missing data |
 | Guard blocks by category | Abuse attempts, and false alarms |
 | Personal data redactions | Should be zero. Anything else means an upstream layer leaked |
@@ -594,7 +603,7 @@ In production one more is added: cost per question in dollars, computed from the
 
 **Alerts in production:** failed share above a threshold; gave-up share rising; 95th percentile latency; any redaction; a spike in guard blocks; cost per question approaching the cap; every model in the list resting.
 
-**Debugging one answer.** The reviewer takes the trace id, opens the trace, and reads the steps in order: what the model asked for, the exact SQL that ran, what came back, what the model did next. In the prototype this is `/trace` for the last question, or the JSON line in `logs/traces.jsonl`. The example run shows it. Because the executed SQL is stored, the query can be re-run to see the data the model saw. Because the conversation id is stored, all turns of a conversation can be read in order.
+**Debugging one answer.** The reviewer takes the trace id, opens the trace, and reads the steps in order: what the model asked for, the exact SQL that ran, what came back, what the model did next. In the prototype this is `/trace` for the last question, or the JSON line in `logs/traces.jsonl`. The example run shows it. Because the executed SQL is stored, the query can be re-run to see the data the model saw. Because the conversation id is stored, all turns of a conversation can be read in order; it is the same id that is stored with each saved report.
 
 **In production** each trace also carries the tone version in force, which is what the automatic rollback in 3.8 compares. The same records are OpenTelemetry spans sent to Cloud Trace, and structured logs sent to Cloud Logging with a sink to BigQuery, so the metrics above are SQL queries and the dashboards and alerts are built on them. A tool specialised in model traces can be added on the same data, but is not required.
 
@@ -667,15 +676,18 @@ Around the gate:
 | Forbidden SQL | SQL gate | Rejected, no retry | A short explanation that this is not allowed |
 | Empty result | Row count | Hint once, then stop | "No data matched", with the filter used |
 | Result too large | Row limit | Marked incomplete; model aggregates | An aggregated answer |
+| Query runs out of time | Our own timeout | The job is cancelled; model narrows the query | The answer for a narrower scope |
 | Query too expensive | Dry-run and byte cap | Refused; model narrows it | The answer for a narrower scope |
 | BigQuery unavailable | Error class | One immediate retry, then stop | "The data warehouse is temporarily unavailable" |
 | BigQuery not set up at start | A free dry-run when the CLI starts | Stops before the chat begins | What is missing, and the offline option |
 | Model timeout or server error | Error class | Backoff and retry, then next model | "The model is busy, retrying" while it works |
 | Model rate limit | Error with a wait time | Wait if short, otherwise rest it and use the next model | Usually nothing |
-| Every model unavailable | All resting or failed | Wait up to a minute for the soonest, else stop | How long to wait before trying again |
+| Every model unavailable | All resting or failed | Wait up to a minute for a rate-limited one, else stop | How long to wait before trying again |
 | Work limit for one question | Call and token counters | The model is told when its last step has come; past the limit, stop | An answer from what was found; or a request to narrow or split the question |
 | Time limit for one question | A deadline given to every model call and query | The call in progress times out; nothing new starts | A request to narrow or split the question, naming the time limit |
 | Tool crashes | Exception caught in the tool step | Error result to the model | An explanation that it did not work |
+| Ctrl-C during a question | Caught by the interface | The question is dropped and its trace closed | "Interrupted"; the chat continues |
+| The trace cannot be written | Error on writing the file | Logged as a warning | Nothing: the answer is shown as usual |
 | Any other exception | Caught at the session boundary | Logged with cause; turn ends | A short apology; the conversation continues |
 | Personal data in output | Scrubber | Masked and counted | The masked text |
 | Confirmation not answered | A new message arrives | Treated as "no" | Nothing is deleted |
@@ -718,6 +730,10 @@ What is sent to the model: the instructions, the conversation text, and query re
 - Brand scope and the personal data rule are enforced by the application only. Production adds what BigQuery can enforce on the company's own data (3.2); on the public dataset used here nothing more is possible.
 - The model can still misstate a figure. Stating conventions and returning totals from SQL reduce it; the grounding check in 3.6 is what would catch the remainder, and it is not built.
 - The input guard is rules only. Subtle cases rely on the model declining and on the gate.
+- A statement that is not a query (a `DESCRIBE`, a write) ends the attempts for that question at once. This is deliberate, and it costs an honest model its retries if it makes that slip.
+- An answer that is cut off because the model reached its output limit is shown as it is.
+- The offline engine is not BigQuery: a few functions do not translate, and a few behave differently (division by zero, the numbering of weekdays). The BigQuery test group is the check that counts.
+- Finding reports by text ignores case for unaccented letters only.
 - Conversation state is in memory and ends with the process. Reports and traces persist.
 - Golden bucket retrieval is by shared words. It works for seven trios and would not for 1,000.
 - The cap in dollars is not computed. Limits are set in model calls, tokens, seconds and bytes.

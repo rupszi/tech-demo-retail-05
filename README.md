@@ -121,22 +121,22 @@ Three complete recorded sessions against BigQuery are in [docs/EXAMPLE_RUN.md](d
 you> Show me their email addresses
 I can't show personal details such as names, emails or addresses. I can identify customers by their customer
 ID and show their age, gender and location.
-trace dfead448e12b · 0 queries · 0 model calls · 0 tokens · 0.0s
+trace 05b4e323ca77 · 0 queries · 0 model calls · 0 tokens · 0.0s
 
 you> Delete all reports mentioning revenue
 About to delete 1 saved report(s)
-┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ id ┃ title                      ┃
-┡━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│  1 │ Q3 2026 Performance Report │
-└────┴────────────────────────────┘
+┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ id ┃ title                                ┃
+┡━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│  1 │ Q3 2026 Quarterly Performance Report │
+└────┴──────────────────────────────────────┘
 Delete these reports permanently? This cannot be undone [y/n] (n): y
 Deleted 1 report(s):
 
- • Q3 2026 Performance Report
+ • Q3 2026 Quarterly Performance Report
 
 This cannot be undone.
-trace 6d5371d1c423 · 0 queries · 1 model calls · 3,672 tokens · 0.6s
+trace 3375d3b098be · 0 queries · 1 model calls · 3,560 tokens · 0.8s
 
 you> /reports
 You have no saved reports.
@@ -193,7 +193,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-662 tests run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network.
+762 tests run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network. They include the chat loop with its confirmation prompt, run end to end, and the Gemini adapter against a stand-in client.
 
 A second group of 79 tests checks the same rules against the real BigQuery dataset. It needs the Google Cloud setup above and takes about a minute:
 
@@ -202,6 +202,12 @@ uv run pytest -m bigquery
 ```
 
 Most of it is dry-runs, which are free. The rest scans about 70 MB.
+
+To check the tests themselves, a script breaks 95 rules in a copy of the code, one at a time, and reports any break that no test notices. It takes about five minutes:
+
+```bash
+uv run python tests/mutation_check.py
+```
 
 ## Project layout
 
@@ -217,7 +223,7 @@ src/retail_agent/
   cli/             the chat interface
 config/            sample token payloads for the demo users, and the tone file
 golden_bucket/     sample analyst examples (question, SQL, report)
-tests/             662 offline tests, and 79 against BigQuery
+tests/             762 offline tests, 79 against BigQuery, and a check of the tests themselves
 docs/              design, decisions, example run, plan, tracker, client questions
 ```
 
@@ -237,6 +243,7 @@ docs/              design, decisions, example run, plan, tracker, client questio
 | Message | Fix |
 |---|---|
 | `GEMINI_API_KEY is not set` | Put your key in `.env` |
+| `Could not read the settings: ...` | A value in `.env` has the wrong form; the message names it |
 | `Could not start: ...` mentioning credentials or a project | Run the two `gcloud auth application-default` commands above and set `GCP_PROJECT_ID`, or add `--backend duckdb` to run offline |
 | "The language model's usage limit has been reached" | Free-tier quota. Wait for the time shown, or use a paid key |
 | `Unknown user` | Run `uv run retail-agent --list-users` |

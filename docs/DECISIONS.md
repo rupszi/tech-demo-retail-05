@@ -39,6 +39,7 @@ Related documents: [DESIGN.md](DESIGN.md) (how the system works), [PLAN.md](PLAN
 | D-27 | Traces are one JSON line per question; metrics are computed from them | Implemented |
 | D-28 | What was deliberately left out of the prototype | Decided |
 | D-29 | BigQuery is the default data source, and has its own test group | Implemented; follows the client's suggestion |
+| D-30 | The tests are checked by breaking the code on purpose | Done |
 
 ---
 
@@ -125,13 +126,14 @@ The brief has three safety requirements: only analysis questions, no personal da
 | Only the four allowed tables | `events`, `INFORMATION_SCHEMA`, other datasets and projects, wildcard tables |
 | No personal data columns | `email`, `first_name` and so on, by any alias or path |
 | No namespaced functions (D-11) | User-defined, remote, ML and AI functions |
+| No query parameters or system variables | `@@project_id`, which would name the project the service runs in |
 | Row limit (D-12) | A query that returns the whole table |
 
-**Rejections tell the agent what to do next.** Each rejection has a code and a `retryable` flag. Honest mistakes (a syntax error, an unknown table, a personal data column) are retryable: the message is given back to the model so it can fix the query. Things a well-behaved model would not write (a write statement, several statements, a forbidden function) are not retryable, so no further model calls are spent on them.
+**Rejections tell the agent what to do next.** Each rejection has a code and a `retryable` flag. Honest mistakes (a syntax error, an unknown table, a personal data column) are retryable: the message is given back to the model so it can fix the query. Things a well-behaved model would not write (a write statement, a forbidden function, a script) are not retryable, so no further model calls are spent on them. Several plain queries in one call are the exception among multi-statement input: a real run showed a model doing that to save a step, so it is told to send one query per call and may try again.
 
 **Considered instead.** Checking the SQL text with regular expressions: easy to bypass with comments, casing, quoting or nesting. Relying only on database permissions: necessary in production (see "Known limits"), but the brief's public dataset cannot be given row-level policies, and permissions alone give the model no useful feedback.
 
-**Where.** `safety/validator.py`. Tests: `tests/test_sql_gate.py` with the corpora in `tests/sql_cases.py`: 75 hostile queries are all rejected and 24 legitimate analytical queries all pass, for each of the three user profiles.
+**Where.** `safety/validator.py`. Tests: `tests/test_sql_gate.py` with the corpora in `tests/sql_cases.py`: 80 hostile queries are all rejected and 24 legitimate analytical queries all pass, for each of the three user profiles.
 
 ### D-07. Only SQL regenerated from the syntax tree is executed
 
@@ -183,7 +185,7 @@ SELECT COUNT(*) FROM (
 There are two mechanisms, and it matters which one is the guarantee:
 
 1. **The guarantee.** The real `users` table only ever appears inside the scoping subquery from D-08, and that subquery selects the safe columns by name. So `SELECT *`, whole-row expressions such as `SELECT u FROM users u`, and `TO_JSON_STRING(u)` can only ever see safe columns. A query that names a personal data column in some way the check below misses fails in the database, because the column does not exist in what it is querying.
-2. **The convenience.** Queries that name a personal data column are rejected up front with a message the model can act on ("identify customers by id"). This avoids a wasted database call and gives a clearer error.
+2. **The convenience.** Queries that name a personal data column anywhere, as a column, in `USING (...)` or as a field of a row value, are rejected up front with a message the model can act on ("identify customers by id"). This avoids a wasted database call and gives a clearer error.
 
 **Why an allow-list of columns rather than masking values.** Masking (showing `m***@example.com`) still returns something derived from the personal value and has to be right for every function that could touch it. Not selecting the column at all has no such edge cases. The brief's required capability "top customers" still works, with customers shown as IDs.
 
@@ -226,7 +228,7 @@ A second variant used a `WITH` name defined later in the same clause. A third we
 
 ### D-12. Results are row-limited and say when they were cut
 
-**Decision.** Every query gets a `LIMIT` (500 rows by default). An existing smaller limit is kept; a missing or larger one is replaced. The result object carries a `truncated` flag that is true when the limit was reached.
+**Decision.** Every query gets a `LIMIT` (500 rows by default). An existing smaller limit is kept; a missing or larger one is replaced. The result object carries a `truncated` flag that is true when our row limit was reached. A smaller limit that the query chose itself, such as a top 5, is a complete answer and is not flagged; the first version flagged those too, which told the model on every top-N query that its result was incomplete.
 
 **Why.** The limit bounds what is sent to the model (cost) and what could leak in the worst case. The flag exists because a silent cut is dangerous in analysis: a report built on the first 500 rows of a larger result would be confidently wrong. With the flag, the agent can tell the model to aggregate further instead.
 
@@ -234,7 +236,7 @@ A second variant used a `WITH` name defined later in the same clause. A third we
 
 ### D-13. Output is scrubbed for personal data as a second layer
 
-**Decision.** Query results pass through a scrubber that masks emails, phone numbers, street addresses, coordinates, card numbers and social security numbers, and counts what it masked. The agent's final answers and saved reports go through the same function, and questions and answers are scrubbed before they are written to a trace.
+**Decision.** Query results pass through a scrubber that masks emails, phone numbers, street addresses, coordinates, card numbers and social security numbers, and counts what it masked. The agent's final answers and saved reports, titles included, go through the same function. Everything written to a trace or to the audit log is scrubbed as well, not only the question and the answer: the SQL the model wrote, or the criteria of a delete request, can repeat something a user typed.
 
 **Why.** D-09 should mean there is nothing to scrub. The scrubber is there so that a mistake in that layer, or personal data a user types into the conversation, still does not reach the screen or a saved report. The counts feed observability: a non-zero count is a signal that something upstream is wrong.
 
@@ -270,6 +272,8 @@ A second variant used a `WITH` name defined later in the same clause. A third we
 - A token with no brand scope describes a user who may see nothing.
 - Scopes of any other kind are ignored, so a token issued for something else grants nothing here.
 - A token without a subject, or whose scopes are not a list of strings, is rejected.
+- The wide grant must be written exactly as `brand:*`. Something close to it, such as `brand: *`, grants nothing.
+- A sample file that lists the same user twice is an error, not a silent choice of the last entry.
 
 **Why denied by default.** With scopes arriving in a token, "missing means everything" would turn a malformed or incomplete token into full access. Making the wide grant explicit means every mistake fails closed.
 
@@ -337,6 +341,8 @@ These decisions were made while building and running the agent. Several of them 
 | A write statement, several statements, a forbidden function | No retry |
 | Empty result | A hint to check filter values, once; then stop |
 | The database is unavailable | The same SQL is retried once by the application; the model is not asked to rewrite it |
+| The query runs out of time | The job is cancelled and the model must narrow the query; the same SQL is not run again |
+| Several plain queries in one call | The model is told to send one per call; counts as one failure |
 | One model call left for the question | The tool results tell the model to answer now from what it has |
 | 8 model calls, 60,000 tokens or 120 seconds used on one question | Stop and ask the user to narrow the question |
 
@@ -348,7 +354,7 @@ These decisions were made while building and running the agent. Several of them 
 
 **Announcing the last step.** The first recording of "Why did our churn rate spike last month?" ran eight queries, one per step, reached the limit on model calls and showed the limit message. The cost was bounded, but the work was thrown away. Now, when one model call is left, every tool result carries an instruction to answer from what has been found and to say what could not be checked. Recorded again, the same question ends in an answer on its eighth call.
 
-**Observed.** In the recorded sessions three of 23 queries failed: two on a date function that BigQuery does not support for timestamps, and one on a wrong alias. Each was corrected on the next attempt, and none was billed. Earlier runs also showed wrong apostrophe escaping, corrected the same way.
+**Observed.** In the recorded sessions one of 21 queries failed, on a date function that BigQuery does not support for timestamps. It was corrected on the next attempt and was not billed. Earlier runs showed the same error more often, a wrong alias, and wrong apostrophe escaping, all corrected the same way.
 
 **Where.** `Toolbox.run_sql` in `agent/tools.py`. Tests: the "self-correction and its limits" group in `tests/test_agent.py`.
 
@@ -365,7 +371,9 @@ These decisions were made while building and running the agent. Several of them 
 
 **Why.** This keeps the assistant usable through the failure a reviewer on the free tier is most likely to meet, and it is also the right behaviour in production: it is a circuit breaker whose timing comes from the provider instead of a guess. A general-purpose circuit breaker shared between instances is described in the design and not built, because a single-user CLI has nothing to share.
 
-**Observed.** The recorded sessions were answered almost entirely by the third model in the list, with no action from the user.
+**A second chance for a rate-limited model.** When no model answered, the rate-limited one that is due back first gets one more try: at once if its rest ended while the others were being tried, or after a wait of up to a minute. A model that simply failed is not waited for, because it has no time to come back at.
+
+**Observed.** The recorded sessions were answered entirely by the third model in the list, with no action from the user. In one answer that model hit its own per-minute limit and was waited for, for 59 seconds.
 
 **Where.** `llm/resilient.py`. Tests: `tests/test_llm.py`, with a fake clock so no test waits.
 
@@ -382,7 +390,8 @@ These decisions were made while building and running the agent. Several of them 
 **Why each part.**
 
 - *The pause is a step of its own.* When the graph resumes, only that step runs again, and it reads the ids from the saved state. So the set that is deleted is the set that was shown, even if more matching reports appeared meanwhile.
-- *The model cannot confirm.* The decision arrives through `ChatSession.confirm`, which only the interface calls. There is no tool for it, and a "yes" typed into the chat is an ordinary message that cancels the pending request.
+- *The model cannot confirm.* The decision arrives through `ChatSession.confirm`, which only the interface calls. There is no tool for it, and a "yes" typed into the chat is an ordinary message that cancels the pending request and ends the turn it belonged to.
+- *The request is checked, not guessed.* The arguments of `delete_reports` come from the model. A string where a list of ids is expected would be read one character at a time, so wrong types are refused and nothing is interpreted.
 - *Deleting is permanent.* The first version was a soft delete with an `/undo` command. The client then said that deleted reports do not need to be recoverable, so the restore function, the command and the extra columns were removed. This also makes the confirmation mean what it says: the brief calls the action destructive, and now it is. The confirmation and the outcome both state that it cannot be undone.
 - *The audit log outlives the reports.* The request, and the confirmation or the cancellation, are recorded with the report ids, and the titles of what was requested and of what was deleted are kept. Report ids are never reused, so an id in the log cannot come to mean a different report.
 - *A delete asked for together with something else.* If the model asks for a query and a delete in the same step, the query runs, the user is asked, and after the decision the model answers the rest. The outcome of the delete is kept by the application and put in front of that answer, so it is shown whatever the model says, and even if the model call fails. A second delete request in the same question is refused without asking the user again. The first version ended the turn at the confirmation and never used the query's result.
@@ -421,7 +430,7 @@ These decisions were made while building and running the agent. Several of them 
 
 **Why.** The client confirmed on 2026-10-04 that the bucket is theoretical, that it need not be implemented in the prototype, and that a local folder of sample trios is the right stand-in. They also said that the real bucket holds about 1,000 trios in JSON, which is the format the samples use, and asked how it scales with hundreds of users; that is answered in the design (section 3.1). Matching on words needs no service and no extra model calls, and the function it sits behind (`find_similar`) is what an embedding search would implement.
 
-**Kept honest by tests.** Every stored SQL statement is run through the SQL gate and the local database in the offline suite, and on the real dataset in the BigQuery test group. A trio that stops working fails the build.
+**Kept honest by tests.** Every stored SQL statement is run through the SQL gate and the local database in the offline suite, and on the real dataset in the BigQuery test group, where it must also find rows. A trio that stops working fails the build.
 
 **Where.** `golden/retrieval.py`, `golden_bucket/`. Tests: `tests/test_golden.py`.
 
@@ -431,7 +440,9 @@ These decisions were made while building and running the agent. Several of them 
 
 **Why.** One record per question answers both operational questions: is it failing (aggregate the records), and why did this answer go wrong (read one record). Computing metrics from traces means they cannot disagree with each other, and a new metric needs no new instrumentation.
 
-**What is not logged.** Result rows, only their count. Questions and answers are scrubbed for personal data first. Time spent waiting for the user to confirm a delete is excluded from latency.
+**What is not logged.** Result rows, only their count. The whole record is scrubbed for personal data before it is written. Time spent waiting for the user to confirm a delete is excluded from latency.
+
+**Details that matter.** A model step is named after the model that answered it. A question counts as recovered only if a query succeeded after one had failed; an apology after a failed query is not a recovery. Traces of a chat carry the conversation id, the same one that is stored with each saved report. A trace that cannot be written does not cost the answer, and a damaged line in the file costs that trace only.
 
 **Considered instead.** A metrics database and a tracing service. Both are right for production, where the same records become OpenTelemetry spans; neither is needed to show the approach.
 
@@ -477,6 +488,18 @@ The brief limits the prototype to four requirements, and the client asked for th
 
 **Where.** `config.py`, `cli/app.py`, `tests/test_bigquery_live.py`, `pyproject.toml`.
 
+### D-30. The tests are checked by breaking the code on purpose
+
+**Situation.** A test suite can be large and still prove little: a test may assert something that stays true when the feature is broken, and whole paths may have no test at all. A review of the tests pointed at both. The confirmation prompt of the CLI, for one, was only ever tested with "y" and "n" typed in, and no test ran the chat loop itself.
+
+**Decision.** `tests/mutation_check.py` copies the repository, breaks one rule in the copy, runs the offline suite, and reports whether a test failed. It does this for 95 rules, one at a time: no brand filter, personal data columns exposed, a delete carried out whatever the user answers, the interface passing on the opposite of the answer, retries that ignore the deadline, a trace that is not scrubbed, and so on. It is run on request and takes about five minutes.
+
+**Result.** Every one of the 95 breaks makes a test fail. The first runs did not: they led to the tests that run the chat loop and its confirmation prompt end to end (`tests/test_cli_chat.py`), to the tests of the Gemini adapter against a stand-in client that returns real SDK objects (`tests/test_gemini.py`), and to a number of sharper assertions.
+
+**Limits.** The list is hand-written, so it covers the rules somebody thought of. Each entry is tied to a line of source; when that line changes, the script says that the break could not be applied, and the entry has to be updated.
+
+**Where.** `tests/mutation_check.py`. Run with `uv run python tests/mutation_check.py`.
+
 ## Known limits, and what production adds
 
 These are stated so nobody has to discover them.
@@ -487,8 +510,12 @@ These are stated so nobody has to discover them.
 | Brand scope | Enforced by the SQL gate only | The gate remains the enforcement point, because BigQuery never sees the application's token; identity federation is an option if a second enforcement is wanted |
 | Personal data | Column allow-list plus pattern scrubber. On the public dataset nothing in BigQuery can add to this | On the company's own data, access only to views without the personal data columns, so BigQuery refuses them too; and a managed inspection service in place of the patterns |
 | Input guard | Rules, then the model's own instruction to decline | A managed prompt-safety service in front |
-| Local engine | Some BigQuery functions do not translate | Not relevant: production uses BigQuery |
-| Figures in answers | The model can misstate a number; conventions and SQL totals reduce it | A mechanical grounding check before an answer is shown |
+| Local engine | Some BigQuery functions do not translate, and a few behave differently (division by zero, weekday numbering) | Not relevant: production uses BigQuery. The BigQuery test group is the check that counts |
+| Figures in answers | The model can misstate a number, or draw a conclusion its queries do not support; conventions and SQL totals reduce it | A mechanical grounding check before an answer is shown |
+| Statements that are not queries | A `DESCRIBE` or a write ends the attempts for that question at once, also when it was an honest slip | The same; it is the intended direction of failure |
+| Queries per question | Not counted; bounded by the limits on model calls and time, and 1 GB each | Part of the cost cap in dollars |
+| Cut-off answers | An answer that reached the model's output limit is shown as it is | Detected and retried with a higher limit |
+| Finding reports by text | Case is ignored for unaccented letters only | Full-text search in PostgreSQL |
 | Conversation state | In memory; ends with the process (reports and traces persist) | Checkpoints in PostgreSQL |
 | Golden bucket retrieval | Shared words over seven files | An embedding index over about 1,000 trios |
 | Cost cap | Limits on model calls, tokens, time and bytes | One setting in dollars, $1 per question by default, translated into those limits |
@@ -505,5 +532,5 @@ Run on 2026-10-04 with the project `opsfleet-demo`. The first five points are no
 - With real brands, each restricted profile sees only its own brands, including a brand name containing an apostrophe, which confirms values are escaped correctly.
 - `SELECT * FROM users` on real data returns only the eight safe columns.
 - All seven analyst examples pass the SQL gate and run on BigQuery, scanning 5 to 10 MB each.
-- Three conversations were recorded with real Gemini and real BigQuery ([EXAMPLE_RUN.md](EXAMPLE_RUN.md)): 14 questions, 12 answered and 2 stopped by the guard as intended, none failed; three of 23 queries failed and were corrected by the agent; a delete was declined and another confirmed.
-- Every figure in the recorded quarterly report, and every figure in the third session, was checked against the results of its queries by running the stored SQL again. Two loose sentences in the other answers are listed at the top of the example run.
+- Three conversations were recorded with real Gemini and real BigQuery ([EXAMPLE_RUN.md](EXAMPLE_RUN.md)): 14 questions, 12 answered and 2 stopped by the guard as intended, none failed; one of 21 queries failed and was corrected by the agent; a delete was declined and another confirmed.
+- Every figure in the three recorded sessions was checked against the results of its queries by running the stored SQL again. They match. The loose sentences around them are listed at the top of the example run.
