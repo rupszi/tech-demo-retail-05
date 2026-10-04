@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import math
 import operator
+import time
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
@@ -39,6 +40,10 @@ MSG_UNAVAILABLE = (
     "I can't reach the language model right now. Nothing was lost; please try again in a moment."
 )
 MSG_RATE_LIMITED = "The language model's usage limit has been reached. Please try again in {wait}."
+MSG_TIME = (
+    "I stopped because this question passed the time limit ({limit}). "
+    "Please narrow it or split it into smaller steps."
+)
 MSG_BUDGET = (
     "I reached the work limit for a single question before finishing. "
     "Please narrow the question or split it into smaller steps."
@@ -49,6 +54,7 @@ class AgentState(TypedDict, total=False):
     question: str  # the incoming message; enters `messages` only if the guard allows it
     messages: Annotated[list[Message], operator.add]
     turn_start: int  # index in `messages` where the current question starts
+    turn_started_at: float  # wall-clock time, for the time limit
     llm_calls: int
     tokens: int
     sql_failures: int
@@ -111,6 +117,7 @@ def build_graph(deps: AgentDeps):
         return {
             "messages": [{"role": "user", "text": state["question"]}],
             "turn_start": len(state.get("messages", [])),
+            "turn_started_at": time.time(),
             "llm_calls": 0,
             "tokens": 0,
             "sql_failures": 0,
@@ -130,6 +137,14 @@ def build_graph(deps: AgentDeps):
         ):
             tracer.event("budget", "exceeded", llm_calls=state["llm_calls"], tokens=state["tokens"])
             return finish(MSG_BUDGET, "failed")
+        # Checked between steps: a step that is already running is allowed to finish.
+        elapsed = time.time() - state["turn_started_at"]
+        if elapsed >= settings.turn_time_budget_s:
+            tracer.event(
+                "budget", "time", seconds=round(elapsed), limit=settings.turn_time_budget_s
+            )
+            limit = _human_duration(settings.turn_time_budget_s)
+            return finish(MSG_TIME.format(limit=limit), "failed")
 
         system = build_system_prompt(
             deps.profile,

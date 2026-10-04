@@ -40,6 +40,7 @@ class Settings:
     rows_to_model: int = 50
     max_llm_calls: int = 8
     turn_token_budget: int = 60_000
+    turn_time_budget_s: int = 120  # long reports may take one to two minutes, not more
     # local state and editable content
     reports_db_path: str = "data/reports.sqlite"
     trace_dir: str = "logs"
@@ -72,6 +73,7 @@ class Settings:
             rows_to_model=int(env("ROWS_TO_MODEL", default.rows_to_model)),
             max_llm_calls=int(env("MAX_LLM_CALLS", default.max_llm_calls)),
             turn_token_budget=int(env("TURN_TOKEN_BUDGET", default.turn_token_budget)),
+            turn_time_budget_s=int(env("TURN_TIME_BUDGET_SECONDS", default.turn_time_budget_s)),
             reports_db_path=env("REPORTS_DB_PATH", default.reports_db_path),
             trace_dir=env("TRACE_DIR", default.trace_dir),
             persona_path=env("PERSONA_PATH", default.persona_path),

@@ -161,6 +161,27 @@ def test_token_budget_is_enforced(chat):
     assert session.ask("Count orders").answer == MSG_BUDGET
 
 
+def test_a_question_that_runs_past_the_time_limit_is_stopped_between_steps(chat, monkeypatch):
+    from types import SimpleNamespace
+
+    from retail_agent.agent import graph
+
+    clock = iter([1000.0, 1001.0, 1200.0])  # question starts; first check; second check
+    monkeypatch.setattr(graph, "time", SimpleNamespace(time=lambda: next(clock)))
+    session = chat(says("", call("run_sql", sql=COUNT)), says("never reached"))
+    result = session.ask("Write a very long report")
+    assert "time limit (about 2 minutes)" in result.answer and result.outcome == "failed"
+    assert session.model.calls == 1  # the step in progress finished; no further step started
+    stop = next(s for s in result.trace["steps"] if s["kind"] == "budget")
+    assert (stop["name"], stop["seconds"], stop["limit"]) == ("time", 200, 120)
+
+
+def test_the_time_limit_is_a_setting(chat):
+    session = chat(says("never reached"), turn_time_budget_s=0)
+    result = session.ask("Show revenue")
+    assert "time limit" in result.answer and session.model.calls == 0
+
+
 # ---- failures outside our control ------------------------------------------------------------
 def test_model_outage_gives_a_friendly_message_and_the_chat_continues(chat):
     session = chat(LLMUnavailable("all models failed"), says("Back again."))
