@@ -513,7 +513,7 @@ BREAKS = [
     (
         "the median is the minimum",
         "src/retail_agent/observability/tracing.py",
-        "    return ordered[min(len(ordered) - 1, round(q * (len(ordered) - 1)))] if ordered else 0.0",
+        "    return ordered[max(0, math.ceil(q * len(ordered)) - 1)] if ordered else 0.0",
         "    return ordered[0] if ordered else 0.0",
     ),
     (

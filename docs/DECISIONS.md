@@ -345,6 +345,7 @@ These decisions were made while building and running the agent. Several of them 
 | The database is unavailable | The same SQL is retried once by the application; the model is not asked to rewrite it |
 | The query runs out of time | The job is cancelled and the model must narrow the query; the same SQL is not run again |
 | Several plain queries in one call | The model is told to send one per call; counts as one failure |
+| More than 12 queries on one question | The rest are refused, and the model is told to answer from what it has |
 | One model call left for the question | The tool results tell the model to answer now from what it has |
 | 8 model calls, 60,000 tokens or 120 seconds used on one question | Stop and ask the user to narrow the question |
 

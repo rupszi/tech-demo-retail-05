@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from retail_agent.observability import Tracer, compute_stats, read_traces
+from retail_agent.observability.tracing import _percentile
 
 from .fakes import call, says
 
@@ -136,7 +137,7 @@ def test_every_metric_has_the_value_the_traces_imply():
         "blocked_by_guard": 0.25,
         "gave_up": 0.25,
         "failed": 0.0,
-        "latency_ms_p50": 3000,
+        "latency_ms_p50": 1000,  # nearest rank: the 2nd of 4
         "latency_ms_p95": 9000,
         "tokens_per_question": 180,
         "llm_calls_per_question": 1.5,
@@ -180,3 +181,11 @@ def test_waiting_for_a_confirmation_is_left_out_of_the_latency_of_a_real_turn(ch
 
 def test_stats_with_no_traces(tmp_path):
     assert compute_stats(read_traces(tmp_path)) == {"questions": 0}
+
+
+def test_percentiles_are_nearest_rank():
+    seventeen = [float(i) for i in range(1, 18)]
+    assert _percentile(seventeen, 0.95) == 17.0  # the 17th of 17: ceil(0.95 * 17)
+    assert _percentile(seventeen, 0.5) == 9.0
+    assert _percentile([4.0, 1.0, 3.0, 2.0], 0.5) == 2.0
+    assert _percentile([], 0.95) == 0.0

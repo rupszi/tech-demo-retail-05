@@ -122,7 +122,8 @@ def test_a_new_message_instead_of_an_answer_counts_as_no(session):
     s = session(DELETE_DRIFTLINE, says("Here is revenue."))
     s.ask("Delete all reports mentioning Driftline")
     result = s.ask("yes, go ahead")  # typed into the chat, not given to the confirmation prompt
-    assert result.answer == "Here is revenue."
+    # The user is told what became of the request, and then gets the answer to the new message.
+    assert result.answer == "Nothing was deleted.\n\nHere is revenue."
     assert len(titles(s)) == 3 and "delete_cancelled" in actions(s)
 
 
@@ -284,7 +285,8 @@ def test_a_new_message_ends_the_whole_pending_turn(session):
     s = session(QUERY_AND_DELETE, says("Second answer."))
     s.ask(BOTH)
     result = s.ask("Something else entirely")
-    assert result.answer == "Second answer." and s.model.calls == 2  # no call for the old turn
+    assert result.answer == "Nothing was deleted.\n\nSecond answer."
+    assert s.model.calls == 2  # no call for the old turn
     assert len(titles(s)) == 3 and actions(s) == ["delete_requested", "delete_cancelled"]
 
 
@@ -317,3 +319,12 @@ def test_a_report_title_is_scrubbed_too(chat):
     s = chat(says("", call("save_report", title="Notes on a.b@example.com", content="x")), says())
     s.ask("Save it")
     assert s.reports.list("alice")[0].title == "Notes on [email removed]"
+
+
+def test_a_nul_character_in_the_search_text_cannot_widen_a_delete(session):
+    """SQLite's LIKE stops reading at a NUL, which turned "\\x00Texas" into "every report"."""
+    s = session(says("", call("delete_reports", mentioning="\x00Texas")), says("I could not."))
+    result = s.ask("Delete the Texas reports")
+    assert result.confirmation is None and not s.awaiting_confirmation
+    assert "plain text" in s.model.requests[-1]["messages"][-1]["result"]["error"]
+    assert len(titles(s)) == 3 and actions(s) == []

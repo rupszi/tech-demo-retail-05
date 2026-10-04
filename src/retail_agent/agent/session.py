@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from langgraph.types import Command
@@ -86,12 +86,17 @@ class ChatSession:
         self.awaiting_confirmation = False
 
     def ask(self, question: str) -> TurnResult:
+        dropped = None
         if self.awaiting_confirmation:
             # An unanswered confirmation counts as "no", and the turn it belonged to ends there.
-            self._decide(approved=False, abandoned=True)
+            dropped = self._decide(approved=False, abandoned=True)
         # The trace is scrubbed as a whole when it is written, the question included.
         self._trace_id = self.tracer.start_turn(question)
-        return self._run({"question": question})
+        result = self._run({"question": question})
+        if dropped is not None and dropped.answer:
+            # Say what became of the request, so a "yes" typed into the chat is not left hanging.
+            result = replace(result, answer=f"{dropped.answer}\n\n{result.answer}".strip())
+        return result
 
     def confirm(self, approved: bool) -> TurnResult:
         """Deliver the user's decision on a pending destructive action."""

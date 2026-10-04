@@ -146,3 +146,10 @@ def test_a_problem_while_setting_up_the_conversation_is_reported(cli, monkeypatc
     monkeypatch.setenv("GOLDEN_DIR", str(tmp_path / "golden"))
     code, out, _, _ = cli([], [])
     assert code == 1 and "Could not start" in out and "Traceback" not in out
+
+
+def test_an_unknown_backend_name_in_the_settings_is_reported(capsys, monkeypatch):
+    monkeypatch.setenv("DATA_BACKEND", "bigquerry")
+    assert app.main(["--list-users"]) == 1
+    out = capsys.readouterr().out
+    assert "DATA_BACKEND must be one of bigquery, duckdb" in out and "Traceback" not in out

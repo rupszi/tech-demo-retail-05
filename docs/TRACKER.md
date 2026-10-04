@@ -6,7 +6,7 @@ Updated with the work it describes. Gate definitions are in [PLAN.md](PLAN.md#6-
 
 **Last updated:** 2026-10-04 · **Overall:** phases 0 to 9 delivered the prototype. Phases 10 to 16 are the revision after the client's answers. Phase 17 is an independent review of the result and the fixes that followed. Phase 18 made the repository ready for submission: the open points closed, four more reviews, and the example run recorded with the final code. Every gate is met.
 
-**Tests:** 767 offline in about 3 seconds (`uv run pytest`), and 79 against BigQuery in about a minute (`uv run pytest -m bigquery`). **Lint:** clean.
+**Tests:** 773 offline in about 3 seconds (`uv run pytest`), and 79 against BigQuery in about a minute (`uv run pytest -m bigquery`). **Lint:** clean.
 
 ## Original delivery
 
@@ -77,6 +77,29 @@ From phase 18: four independent reviews of the repository as it stood after the 
 | B4 | Sentences that claimed more than the code does: a user who talks the model round "has gained nothing", "nothing in a trio can leak", "look-alike letters", an empty result "then stop" | Low | Reworded to what holds; the rule for trios is now a test | ✅ |
 | B5 | The model still words some conclusions more strongly than its queries support; the input guard can be passed by rephrasing; the confirmation step is written for deleting only | — | Left as they are. Each is stated in the limits of the design, and the wrong sentences of the recorded run are named at the top of it | ✅ |
 | T | The tests: the chat loop and its confirmation prompt had no test; the Gemini adapter was tested through helpers only; several tests would have passed with the feature broken | — | New tests for both (`test_cli_chat.py`, `test_gemini.py`), for per-question resets, the report tools, history trimming and exact metric values; weak assertions sharpened. `tests/mutation_check.py` breaks 101 rules one at a time: every break is caught (D-30) | ✅ |
+
+## Third review
+
+Three small independent reviews of the finished repository, each given the brief and the client's answers and told to grade strictly: coverage of the brief and the quality of the design (88 of 100), code quality, tests and setup on a fresh clone (85 of 100), and the safety layer attacked hands-on (87 of 100). Their findings, and what was done:
+
+| # | Finding | Severity | What was done | Status |
+|---|---|---|---|:-:|
+| R1 | A NUL character in the text of a delete request made the search match every report of the user (the confirmation still listed them all), while the audit entry looked narrow | Medium | The request is refused, and the report finder matches nothing for such text. Tests in `test_delete_flow.py` and `test_reports.py` | ✅ |
+| R2 | No limit on queries in a question: one model step could run thirty | Medium | `MAX_QUERIES`, 12 by default, failed queries included; the rest are refused and the model is told to answer from what it has. Test: `test_queries_per_question_are_capped_whatever_the_number_of_calls_per_step` | ✅ |
+| R3 | Requirement 7 was marked plain "Built", but the trace keeps no model text and no tool results | Medium | The status is "Built, with limits", and the limit is written next to it | ✅ |
+| R4 | The plain-pip route did not say what to do with another Python version, and installed no test tools | Medium | The README says to use uv, to add `pytest` and `ruff`, and to run from the repository root | ✅ |
+| R5 | The recorded answers contain conclusions the figures do not support (a "led", a "peak", a cause) | Medium | Left as it is: disclosed at the top of the example run, in the requirements page and in section 9. The two checks that would catch it are designed and not built | recorded |
+| R6 | The 95th percentile was computed with the wrong rank, so the recorded 28.0 s was the second-slowest answer; the slowest is 50.2 s | Low | Nearest rank, as the code said. Tests; the recorded `/stats` corrected | ✅ |
+| R7 | The architecture diagram had no arrow to the embedding model, and the model was not named | Low | The arrow, a row in the building blocks and a row in the table of calls | ✅ |
+| R8 | A missing report id raised, and the model was told only that the tool failed | Low | Checked like the ids of a delete. Test | ✅ |
+| R9 | A "yes" typed into the chat dropped the pending delete without telling the user | Low | The next answer begins with "Nothing was deleted." Tests changed to match | ✅ |
+| R10 | A wrong `DATA_BACKEND` gave a message about a missing file | Low | The value is checked and named. Test | ✅ |
+| R11 | Conversation state and the trace file grow without limit; the deadline uses the wall clock and the date the local one; one conversation per process | Low | Written down in section 9 as limits of the prototype | recorded |
+| R12 | The scrubber misses names, bare digit runs and street names ending in an ordinary word | Low | Narrow on purpose; section 9 and the requirements page now say so. The guarantees are the gate and the column allow-list | recorded |
+| R13 | An order that holds other brands' items shows their count | Low | Already disclosed in the README and the design | recorded |
+| R14 | `build_graph` is one long function and the tools node is deeply nested; the table of handlers covers three of five tools | Low | Left: a refactor with no change in behaviour, and the reason for the two tools is in D-20 | recorded |
+
+The security review also tried, and failed, to read personal data through JSON functions, structs, `EXCEPT` and `REPLACE`, window functions, `UNNEST`, `PIVOT`, `INFORMATION_SCHEMA`, look-alike letters and other datasets; to read another brand through joins, subqueries, quotes and crafted brand names; to delete without a yes (truthy values, a typed "yes", id injection, two deletes in one step); and to find a key in the history. Verified again afterwards: 773 offline tests (six new), lint, and the break check.
 
 ## Deliverables
 
@@ -169,3 +192,4 @@ The full wording, the assumption used for each and what each answer changed are 
 | 2026-10-04 | Phase 18: two more reviews, of the documents against the code and of coverage of the brief; their findings fixed or recorded; the design gained a section on running the system; the sessions recorded once more with a follow-up, a product comparison and an off-topic question; full verification repeated |
 | 2026-10-04 | A page was added that goes through the brief item by item, with the status of each and where to see it (`REQUIREMENTS.md`) |
 | 2026-10-04 | The six diagrams of the design are now shown as images, drawn from their Mermaid sources in `docs/diagrams/`. The architecture figure was laid out again to fit a page: Cloud Storage is drawn beside the background jobs it feeds, and the arrow for the public keys points from the identity provider to the API |
+| 2026-10-04 | Three small independent reviews (brief coverage 88, code quality 85, security 87); the findings were fixed or recorded ("Third review"); one query limit added; 773 offline tests |

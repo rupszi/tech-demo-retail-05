@@ -431,3 +431,21 @@ def test_personal_data_in_an_answer_is_masked(chat):
 def test_personal_data_in_a_question_is_not_logged(chat):
     result = chat(says("ok")).ask("My colleague jo@example.com asked about revenue")
     assert "jo@example.com" not in result.trace["question"]
+
+
+def test_a_missing_report_id_gets_a_message_and_not_a_crash(chat):
+    session = chat(says("", call("get_report")), says("Done."))
+    session.ask("Open the report")
+    assert "whole number" in tool_results(session)[0]["error"]  # not "failed unexpectedly"
+
+
+def test_queries_per_question_are_capped_whatever_the_number_of_calls_per_step(chat):
+    many = says("", *[call("run_sql", f"c{i}", sql=COUNT) for i in range(30)])
+    one = says("", call("run_sql", sql=COUNT))
+    session = chat(many, says("Done."), one, says("Again."), max_queries=5)
+    result = session.ask("Count a lot")
+    assert result.outcome == "answered" and len(sql_steps(result)) == 5
+    refused = [r for r in tool_results(session) if "allowed" in r.get("error", "")]
+    assert len(refused) == 25 and budget_step(result)["name"] == "queries"
+    # The count starts again with the next question.
+    assert len(sql_steps(session.ask("Once more"))) == 1

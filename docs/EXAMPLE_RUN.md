@@ -490,7 +490,7 @@ you> /stats
 │ gave_up                   │ 0.0                                                                        │
 │ failed                    │ 0.0                                                                        │
 │ latency_ms_p50            │ 3964                                                                       │
-│ latency_ms_p95            │ 27979                                                                      │
+│ latency_ms_p95            │ 50173                                                                      │
 │ tokens_per_question       │ 8134                                                                       │
 │ llm_calls_per_question    │ 2.18                                                                       │
 │ llm_retries               │ 8                                                                          │

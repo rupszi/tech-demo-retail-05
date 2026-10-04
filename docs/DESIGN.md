@@ -33,8 +33,8 @@ Three ideas shape the design.
 | 3 | High-stakes oversight | **Built and tested** | [3.3](#33-high-stakes-oversight) |
 | 4 | Continuous improvement | Design | [3.4](#34-continuous-improvement) |
 | 5 | Resilience and graceful error handling | **Built and tested** | [3.5](#35-resilience) |
-| 6 | Quality assurance | 767 offline tests and 79 against BigQuery, and a check of the tests themselves; evaluation design | [3.6](#36-quality-assurance) |
-| 7 | Observability | **Built and tested** | [3.7](#37-observability) |
+| 6 | Quality assurance | 773 offline tests and 79 against BigQuery, and a check of the tests themselves; evaluation design | [3.6](#36-quality-assurance) |
+| 7 | Observability | **Built and tested**; the trace keeps no model text or tool results, see 3.7 | [3.7](#37-observability) |
 | 8 | Agility (tone without redeployment) | Tone file read on every question; design for the rest | [3.8](#38-agility-changing-the-tone-without-a-deployment) |
 
 ---
@@ -56,6 +56,7 @@ The figures in this document are images. Each is drawn from a Mermaid source kep
 | Agent service | Cloud Run | Runs the API and the conversation graph in stateless containers | Scales to zero and up with demand, supports streamed responses, and no cluster to operate |
 | Orchestration | LangGraph | The conversation as a graph of named steps with saved state | Pausing for a human and resuming is built in, and steps map directly to trace spans (see [4](#4-technology-choices-and-why)) |
 | Model | Gemini on Vertex AI | Writes SQL, analysis and reports | The brief asks for Gemini; Vertex AI gives service-account access instead of a long-lived key |
+| Embeddings | A Vertex AI text-embedding model, for example `gemini-embedding-001` | Turns each trio, and each question, into a vector for the similarity search | The same service and service account as the model, so no second vendor; one call per question |
 | Analytical data | BigQuery | The sales data; the agent only reads | The data is already there; dry-runs and byte caps give cost control for free |
 | Application state | Cloud SQL for PostgreSQL | Conversation checkpoints, saved reports, audit log, preferences, tone versions, vector index | One transactional store for everything that must be consistent, instead of several services |
 | Golden bucket | Cloud Storage plus a vector index in PostgreSQL (pgvector) | Source of truth for analyst trios, and similarity search over them | Files are easy for analysts to review and version; at about 1,000 trios a dedicated vector service would be unused capacity |
@@ -85,6 +86,7 @@ Server-sent events are enough because the stream goes one way. The user's answer
 | Browser | API | HTTPS and JSON; server-sent events for the answer | The JWT is verified on every request |
 | API | Conversation graph | A call inside the same process | `ChatSession.ask` and `ChatSession.confirm`, the same two calls the CLI makes |
 | Agent | Gemini | Vertex AI API over HTTPS, with the tool declarations | Service account, no long-lived key |
+| Agent | Embedding model | Vertex AI API over HTTPS | One call per question, to find the closest analyst trios |
 | Query gateway | BigQuery | BigQuery jobs API: a dry-run, then the query | Read-only service account; bytes capped per query |
 | Agent | PostgreSQL | SQL over a private connection | A delete and its audit entry are one transaction |
 | Cloud Storage | Background jobs | An object-change notification through Pub/Sub | Starts indexing when a trio is added or changed |
@@ -295,7 +297,7 @@ The assistant manages a library of saved reports. Deleting is destructive, so th
 
 What makes it strict:
 
-- **The decision does not pass through the model.** The graph pauses in a step of its own. Only the interface can resume it, with the user's answer. The model has no tool that confirms, and extra arguments such as `confirmed: true` are ignored. A "yes" typed into the chat is a new message, not a confirmation: it cancels the pending request and ends that turn.
+- **The decision does not pass through the model.** The graph pauses in a step of its own. Only the interface can resume it, with the user's answer. The model has no tool that confirms, and extra arguments such as `confirmed: true` are ignored. A "yes" typed into the chat is a new message, not a confirmation: it cancels the pending request and ends that turn, and the next answer begins by saying that nothing was deleted.
 - **What is confirmed is what is deleted.** The matching report ids are stored in the conversation state when the list is shown. The delete uses those ids, not a new search, so a report created in the meantime is not swept in.
 - **Ownership is checked in the store.** Every query on reports is filtered by owner. A request naming another user's report id finds nothing.
 - **The request is checked, not guessed.** The arguments of a delete request come from the model. A value of the wrong type, such as text where a list of ids is expected, is refused; it is never interpreted.
@@ -376,13 +378,13 @@ After the retry limit, no further query runs for that question and the model is 
 **Bounded cost and time.**
 
 - Broken SQL is caught before it is billed.
-- A question may use at most 8 model calls, 60,000 tokens and 120 seconds. When one model call is left, the tool results say so and tell the model to answer from what it has, so a question that explores for too long ends in an answer. Past any of the limits, the assistant stops and asks the user to narrow the question. The time limit is a deadline, as described below.
+- A question may use at most 8 model calls, 12 queries, 60,000 tokens and 120 seconds. When one model call is left, the tool results say so and tell the model to answer from what it has, so a question that explores for too long ends in an answer. Past any of the limits, the assistant stops and asks the user to narrow the question. The time limit is a deadline, as described below.
 - At most 500 rows are fetched and 50 are shown to the model, with a note when rows were left out.
 - A blocked message uses no model call, and the outcome of a confirmed delete needs no further one.
 - Old result tables are not resent with every turn.
 - BigQuery caps the bytes a query may bill.
 
-Observed over the three recorded sessions: about 8,100 tokens and 2.2 model calls per question on average, about 10 MB scanned per query at most, and a median of 4.0 seconds per answer. The number of queries in a question is not counted on its own: a step may ask for several at once, and what bounds them is the limit on model calls, the time limit and the cap of 1 GB on each.
+Observed over the three recorded sessions: about 8,100 tokens and 2.2 model calls per question on average, about 10 MB scanned per query at most, and a median of 4.0 seconds per answer. A step may ask for several queries at once, so the queries are capped too, at 12 per question with failed ones counted. Past the cap the remaining ones are refused and the model is told to answer from what it has.
 
 **How long an answer may take.** The client accepts the assumed response times and allows one to two minutes for long reports. Ordinary questions are answered in seconds. A long report is produced within the same request, with progress shown, and the time limit stops anything that runs longer. No background job is needed.
 
@@ -415,8 +417,8 @@ This was exercised for real: on the free tier the two larger models allow 20 req
 
 **Before deployment.** Five kinds of checks, from cheapest to most expensive. The first four exist in the prototype; the fifth is design.
 
-1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 767 test cases that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results. About 310 of them are the two query corpora run once for each of the three users.
-2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. The chat loop and its confirmation prompt are run end to end the same way, with typed lines. The Gemini adapter is tested against a stand-in for the SDK client that returns real SDK objects, so what is sent to Gemini and how its answers are read are covered without a network. These are also in the 767.
+1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 773 test cases that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results. About 310 of them are the two query corpora run once for each of the three users.
+2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. The chat loop and its confirmation prompt are run end to end the same way, with typed lines. The Gemini adapter is tested against a stand-in for the SDK client that returns real SDK objects, so what is sent to Gemini and how its answers are read are covered without a network. These are also in the 773.
 3. **The same rules on the real dataset.** A further group of 79 tests runs against BigQuery on request, as the client suggested: the schema, every legitimate query after the gate has rewritten it (as free dry-runs), brand scope and personal data on real data, and every analyst example.
 4. **A check on the tests themselves.** A script breaks 101 rules on purpose, one at a time, in a copy of the repository: no brand filter, a delete carried out whatever the user answers, the interface passing on the opposite of the answer, and so on. Every one made a test fail. The first run of this check found gaps, which is how the tests for the chat loop and the adapter came to be written.
 5. **Evaluation with the real model.** A fixed set of questions run against the real model and a fixed copy of the data, scored automatically:
@@ -654,7 +656,9 @@ def make_chart(self, kind: str, sql: str) -> dict: ...                          
 - Finding reports by text ignores case for unaccented letters only.
 - Conversation state is in memory and ends with the process. Reports and traces persist.
 - Golden bucket retrieval is by shared words. It works for seven trios and would not for 1,000.
-- The cap in dollars is not computed. Limits are set in model calls, tokens, seconds and bytes. The number of queries in a question is not counted on its own (3.5).
+- The cap in dollars is not computed. Limits are set in model calls, queries, tokens, seconds and bytes.
+- The output scrubber's patterns are narrow on purpose, because a report is full of numbers. It misses names, runs of digits without separators, and street names that end in an ordinary word such as Drive or Court. Personal data from the database cannot reach the text, because the gate and the column allow-list stop it earlier; the scrubber backs them up, mainly for what a user types.
+- The prototype is written for one conversation in one process. Conversation state and the trace file grow without limit while it runs, the clock for a question's deadline is the wall clock, and the date in the instructions is the local date where BigQuery's `CURRENT_DATE()` is UTC. A service would store state in the database, rotate traces and use one clock.
 - The pause for confirmation is written for deleting reports. A general flag on tools is designed, not built (3.3 and 8).
 - No feedback on answers is collected (3.4).
 - On the free tier the larger models allow 20 requests a day. The assistant keeps working on the lite model, with somewhat weaker answers.

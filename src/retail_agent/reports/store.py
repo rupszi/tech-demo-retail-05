@@ -103,6 +103,8 @@ class ReportStore:
         """The owner's reports matching every filter given. No filter matches all of them."""
         where, params = ["owner = ?"], [owner]  # the owner filter is always the first condition
         if mentioning:
+            if "\x00" in mentioning:
+                return []  # LIKE stops reading at a NUL, so the pattern would match everything
             # % and _ are wildcards in LIKE; escaped, the user's text is matched literally.
             term = mentioning.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             where.append("(title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')")

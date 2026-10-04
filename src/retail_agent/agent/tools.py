@@ -107,7 +107,7 @@ class Toolbox:
                 str(args.get("title", "")), str(args.get("content", ""))
             ),
             "list_reports": lambda args: self.list_reports(),
-            "get_report": lambda args: self.get_report(args.get("report_id", 0)),
+            "get_report": lambda args: self.get_report(args.get("report_id")),
         }
 
     # ---- data ------------------------------------------------------------------------------
@@ -233,7 +233,10 @@ class Toolbox:
             ]
         }
 
-    def get_report(self, report_id: int) -> dict:
+    def get_report(self, report_id: Any) -> dict:
+        # From the model, so checked and not coerced: a missing id would otherwise be a crash.
+        if not _is_id(report_id):
+            return {"error": "`report_id` must be a whole number."}
         report = self._reports.get(self._owner, int(report_id))
         if report is None:
             return {"error": f"There is no saved report with id {report_id}."}
@@ -246,6 +249,9 @@ class Toolbox:
         mentioning, report_ids = args.get("mentioning"), args.get("report_ids")
         if mentioning is not None and not isinstance(mentioning, str):
             return [], "`mentioning` must be text."
+        if mentioning and "\x00" in mentioning:
+            # SQLite stops reading a LIKE pattern at a NUL, which would match every report.
+            return [], "`mentioning` must be plain text."
         if report_ids is not None and not (
             isinstance(report_ids, list) and all(_is_id(i) for i in report_ids)
         ):

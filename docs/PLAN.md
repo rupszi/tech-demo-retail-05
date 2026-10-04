@@ -23,7 +23,7 @@ Assessment focus: system design, the technical explanation, and an elegant proto
 | 3 | High-stakes oversight (destructive ops) | **yes** | yes |
 | 4 | Continuous improvement (user and system loops) | no | yes |
 | 5 | Resilience and graceful error handling | **yes** | yes |
-| 6 | Quality assurance | 767 offline tests and 79 against BigQuery | yes |
+| 6 | Quality assurance | 773 offline tests and 79 against BigQuery | yes |
 | 7 | Observability | **yes** | yes |
 | 8 | Agility (persona management) | tone file read on every question | yes |
 
@@ -318,6 +318,7 @@ Code: `agent/graph.py`, `agent/tools.py`, `llm/`, `data/`, `safety/gateway.py`, 
 - [x] All three example sessions recorded again with the final code, and their figures checked
 - [x] The three review passes that phase 17 did not run are done on the final state, and their findings settled
 - [x] Full verification: offline tests, lint, BigQuery group, links, diagrams, a fresh clone with `uv` and with `pip`
+- [x] Three small independent reviews of the finished repository (coverage of the brief, code and setup, security); their findings fixed or recorded in the tracker
 
 ### Tests for this revision
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 import uuid
 from collections.abc import Callable, Iterator
@@ -159,7 +160,7 @@ def _recovered(trace: dict[str, Any]) -> bool:
 def _percentile(values: list[float], q: float) -> float:
     """Nearest-rank percentile: always one of the observed values."""
     ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, round(q * (len(ordered) - 1)))] if ordered else 0.0
+    return ordered[max(0, math.ceil(q * len(ordered)) - 1)] if ordered else 0.0
 
 
 def compute_stats(traces: list[dict[str, Any]]) -> dict[str, Any]:

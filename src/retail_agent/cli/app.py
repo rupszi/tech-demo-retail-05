@@ -18,7 +18,7 @@ from rich.prompt import Confirm
 from rich.table import Table
 
 from retail_agent.agent import ChatSession, TurnResult
-from retail_agent.config import Settings
+from retail_agent.config import BACKENDS, Settings
 from retail_agent.data import create_backend
 from retail_agent.llm import LLMError, ResilientLLM
 from retail_agent.llm.gemini import GeminiLLM, create_client
@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--user", help="which sample user to sign in as (default: the first one)")
     parser.add_argument(
         "--backend",
-        choices=["bigquery", "duckdb"],
+        choices=list(BACKENDS),
         help="data source: bigquery (default) or duckdb, an offline mock",
     )
     parser.add_argument("--list-users", action="store_true", help="show the available users")

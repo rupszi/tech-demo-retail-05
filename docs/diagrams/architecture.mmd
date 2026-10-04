@@ -51,6 +51,7 @@ flowchart TB
     gate --> dlp
     gcs --> jobs
     jobs --> embed
+    agent -->|"question<br/>to embed"| embed
     jobs --> pg
     agent -.->|"trace of<br/>every step"| trace
     trace --> logs

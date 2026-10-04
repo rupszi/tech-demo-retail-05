@@ -26,6 +26,15 @@ def _int(name: str, default: int) -> int:
         raise ValueError(f"{name} must be a whole number, got {value!r}.") from None
 
 
+BACKENDS = ("bigquery", "duckdb")
+
+
+def _backend(value: str) -> str:
+    if value not in BACKENDS:
+        raise ValueError(f"DATA_BACKEND must be one of {', '.join(BACKENDS)}, got {value!r}.")
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     # model
@@ -50,6 +59,7 @@ class Settings:
     max_rows: int = 500  # rows fetched per query at most
     rows_to_model: int = 50  # of those, how many the model is shown
     max_llm_calls: int = 8
+    max_queries: int = 12  # run_sql calls per question, failed ones included
     turn_token_budget: int = 60_000
     turn_time_budget_s: int = 120  # long reports may take one to two minutes, not more
     # local state and editable content
@@ -74,7 +84,7 @@ class Settings:
             gemini_api_key=env("GEMINI_API_KEY") or None,
             gemini_models=_names(env("GEMINI_MODELS")) or default.gemini_models,
             gcp_location=env("GCP_LOCATION", default.gcp_location),
-            data_backend=env("DATA_BACKEND", default.data_backend),
+            data_backend=_backend(env("DATA_BACKEND", default.data_backend)),
             duckdb_path=env("DUCKDB_PATH", default.duckdb_path),
             gcp_project_id=env("GCP_PROJECT_ID") or None,
             bq_dataset=env("BQ_DATASET", default.bq_dataset),
@@ -83,6 +93,7 @@ class Settings:
             max_rows=_int("MAX_ROWS", default.max_rows),
             rows_to_model=_int("ROWS_TO_MODEL", default.rows_to_model),
             max_llm_calls=_int("MAX_LLM_CALLS", default.max_llm_calls),
+            max_queries=_int("MAX_QUERIES", default.max_queries),
             turn_token_budget=_int("TURN_TOKEN_BUDGET", default.turn_token_budget),
             turn_time_budget_s=_int("TURN_TIME_BUDGET_SECONDS", default.turn_time_budget_s),
             reports_db_path=env("REPORTS_DB_PATH", default.reports_db_path),

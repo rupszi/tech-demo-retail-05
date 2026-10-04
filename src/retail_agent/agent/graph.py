@@ -56,6 +56,10 @@ LAST_STEP = (
     "from the results you already have, and say plainly what you could not check."
 )
 ONE_DELETE = "Only one delete request can be handled per question."
+QUERY_LIMIT = (
+    "This question has used all the queries it is allowed. Do not run more: answer from the "
+    "results you already have, and say plainly what you could not check."
+)
 
 
 class AgentState(TypedDict, total=False):
@@ -66,6 +70,7 @@ class AgentState(TypedDict, total=False):
     llm_calls: int
     tokens: int
     sql_failures: int
+    queries: int
     empty_results: int
     pending_delete: dict[str, Any] | None  # what the user is being asked to confirm
     paused_at: float  # when the wait for the user began; that wait is not charged to the limit
@@ -147,6 +152,7 @@ def build_graph(deps: AgentDeps):
             "llm_calls": 0,
             "tokens": 0,
             "sql_failures": 0,
+            "queries": 0,
             "empty_results": 0,
             "pending_delete": None,
             "delete_outcome": "",
@@ -234,6 +240,7 @@ def build_graph(deps: AgentDeps):
     def tools(state: AgentState) -> dict:
         results: list[Message] = []
         failures, empties = state["sql_failures"], state["empty_results"]
+        queries = state["queries"]
         # A query gets what is left of the question's time, and none is started after it.
         deadline = state["turn_started_at"] + settings.turn_time_budget_s
         pending = None
@@ -241,9 +248,16 @@ def build_graph(deps: AgentDeps):
             name, args = call["name"], call["args"]
             try:
                 if name == "run_sql":
-                    result, failures, empties = toolbox.run_sql(
-                        str(args.get("sql", "")), failures, empties, deadline
-                    )
+                    # A step may ask for many queries at once; the model calls are capped, so
+                    # the queries are capped too, whatever their number per call.
+                    if queries >= settings.max_queries:
+                        tracer.event("budget", "queries", queries=queries)
+                        result = {"error": QUERY_LIMIT}
+                    else:
+                        queries += 1
+                        result, failures, empties = toolbox.run_sql(
+                            str(args.get("sql", "")), failures, empties, deadline
+                        )
                 elif name in toolbox.handlers:  # a tool that needs only its arguments
                     result = toolbox.handlers[name](args)
                 elif name == "delete_reports":
@@ -287,6 +301,7 @@ def build_graph(deps: AgentDeps):
         return {
             "messages": results,
             "sql_failures": failures,
+            "queries": queries,
             "empty_results": empties,
             "pending_delete": pending,
             "paused_at": time.time(),

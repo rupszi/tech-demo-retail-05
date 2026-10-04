@@ -52,7 +52,7 @@ The first run builds the local database. Its brands and customers are invented.
 <details>
 <summary>Without uv (plain pip)</summary>
 
-Python 3.12 or 3.13 is required.
+Python 3.12 or 3.13 is required, and `pip` refuses any other version. If `python3 --version` shows another one, use the uv route above: it installs a suitable Python for you. This route installs the application only; for the tests and the linter add `pip install pytest ruff`. Run every command from the repository root, because paths such as `config/` and `.env` are relative to it.
 
 ```bash
 python3.12 -m venv .venv
@@ -178,6 +178,7 @@ Everything is set in `.env`; [.env.example](.env.example) lists every option. Th
 | `DATA_BACKEND` | `bigquery` | `bigquery`, or `duckdb` for the offline mock |
 | `MAX_SQL_RETRIES` | `2` | Corrections allowed after a failed query |
 | `MAX_LLM_CALLS` | `8` | Model calls allowed per question |
+| `MAX_QUERIES` | `12` | Queries allowed per question, failed ones included |
 | `TURN_TIME_BUDGET_SECONDS` | `120` | Time allowed per question |
 
 **The tone of answers** is in [config/persona.md](config/persona.md). Edit it and the next answer uses it; no restart is needed.
@@ -195,7 +196,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-767 test cases run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network, and they do not read your `.env`. About 310 of them are the two query corpora, hostile and legitimate, run once for each of the three users. The rest include the chat loop with its confirmation prompt, run end to end, and the Gemini adapter against a stand-in client.
+773 test cases run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network, and they do not read your `.env`. About 310 of them are the two query corpora, hostile and legitimate, run once for each of the three users. The rest include the chat loop with its confirmation prompt, run end to end, and the Gemini adapter against a stand-in client.
 
 A second group of 79 tests checks the same rules against the real BigQuery dataset. It needs the Google Cloud setup above and takes about a minute:
 
@@ -225,7 +226,7 @@ src/retail_agent/
   cli/             the chat interface
 config/            sample token payloads for the demo users, and the tone file
 golden_bucket/     sample analyst examples (question, SQL, report)
-tests/             767 offline tests, 79 against BigQuery, and a check of the tests themselves
+tests/             773 offline tests, 79 against BigQuery, and a check of the tests themselves
 docs/              requirements, design and its figures, decisions, example run, plan, tracker, client questions
 ```
 

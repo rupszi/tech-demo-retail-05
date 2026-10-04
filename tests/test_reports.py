@@ -97,3 +97,7 @@ def test_a_delete_survives_a_restart(tmp_path):
     reopened = ReportStore(path)  # a second connection sees only what was committed
     assert reopened.list("alice") == []
     assert [entry["action"] for entry in reopened.audit("alice")] == ["save", "delete"]
+
+
+def test_a_nul_in_the_search_text_matches_nothing_and_not_everything(store):
+    assert store.find("alice", mentioning="\x00Texas") == []
