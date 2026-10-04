@@ -10,13 +10,23 @@ from dotenv import load_dotenv
 from retail_agent.data.schema import DATASET
 
 
+def _names(value: str | None) -> tuple[str, ...]:
+    """'a, b,c' -> ('a', 'b', 'c'), without duplicates."""
+    return tuple(dict.fromkeys(n.strip() for n in (value or "").split(",") if n.strip()))
+
+
 @dataclass(frozen=True)
 class Settings:
     # model
     gemini_auth: str = "api_key"  # "api_key" (Google AI Studio) or "vertex" (ADC)
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-3.5-flash"
-    gemini_fallback_model: str = "gemini-3.5-flash-lite"
+    # Tried in order: the first model that is available answers. On the free tier the two larger
+    # models allow 20 requests a day each, so the lite model carries the rest of the day.
+    gemini_models: tuple[str, ...] = (
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+    )
     gcp_location: str = "global"
     # data
     data_backend: str = "duckdb"
@@ -50,8 +60,7 @@ class Settings:
         return cls(
             gemini_auth=env("GEMINI_AUTH", default.gemini_auth),
             gemini_api_key=env("GEMINI_API_KEY") or None,
-            gemini_model=env("GEMINI_MODEL") or default.gemini_model,
-            gemini_fallback_model=env("GEMINI_FALLBACK_MODEL") or default.gemini_fallback_model,
+            gemini_models=_names(env("GEMINI_MODELS")) or default.gemini_models,
             gcp_location=env("GCP_LOCATION", default.gcp_location),
             data_backend=env("DATA_BACKEND", default.data_backend),
             duckdb_path=env("DUCKDB_PATH", default.duckdb_path),

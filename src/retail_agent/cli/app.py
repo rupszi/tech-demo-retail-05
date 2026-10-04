@@ -71,8 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         console.print("[dim]See the setup section of the README.[/]")
         return 1
 
-    models = dict.fromkeys([settings.gemini_model, settings.gemini_fallback_model])
-    llm = ResilientLLM([GeminiLLM(client, model) for model in models])
+    llm = ResilientLLM([GeminiLLM(client, model) for model in settings.gemini_models])
     status = {"current": None}
 
     def show_progress(step: str) -> None:
@@ -97,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
                 status["current"] = None
 
     source = "BigQuery" if settings.data_backend == "bigquery" else "local mock data"
-    console.print(f"[bold]Retail analysis assistant[/]  [dim]{source} · {settings.gemini_model}[/]")
+    console.print(f"[bold]Retail analysis assistant[/]  [dim]{source} · {llm.name}[/]")
     console.print(f"Signed in as [bold]{profile.name}[/]. Access: {profile.describe_scope()}.")
     console.print("[dim]Type /help for commands.[/]\n")
 
