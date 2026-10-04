@@ -4,13 +4,13 @@ Updated in the same commit as the work it describes. Gate definitions are in [PL
 
 **Legend:** ⬜ not started · 🟦 in progress · ✅ done (all gates met) · ⛔ blocked
 
-**Last updated:** 2026-10-01 · **Current phase:** 0 · **Overall:** 0 / 10 phases
+**Last updated:** 2026-10-04 · **Current phase:** 1 · **Overall:** 1 / 10 phases
 
 ## Phase status
 
 | # | Phase | Status | Gates met | Evidence / notes |
 |---|---|:-:|:-:|---|
-| 0 | Scaffold | 🟦 | 0 / 5 | Repo, plan and tracker in place |
+| 0 | Scaffold | ✅ | 5 / 5 | `uv sync`, `uv run pytest` (1 passed), `ruff check` and `ruff format --check` clean, `.env` ignored (`git check-ignore`), layout per plan |
 | 1 | Mock data and data layer | ⬜ | 0 / 5 | |
 | 2 | Safety layer | ⬜ | 0 / 7 | |
 | 3 | LLM layer and resilience | ⬜ | 0 / 4 | |
@@ -48,3 +48,4 @@ Updated in the same commit as the work it describes. Gate definitions are in [PL
 | Date | Change |
 |---|---|
 | 2026-10-01 | Repository initialised, remote set, plan and tracker written |
+| 2026-10-04 | Phase 0 complete: scaffold, tooling, config, env template |
