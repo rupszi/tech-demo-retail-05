@@ -1,0 +1,8 @@
+{
+  "users": [
+    {"user_id": "alice", "name": "Alice (Women's casual brands)", "brands": ["Alder & Finch", "Brightwave", "Foxglove"], "departments": null},
+    {"user_id": "bob", "name": "Bob (Men's outdoor brands)", "brands": ["Cobalt Row", "Driftline", "Granite Peak"], "departments": null},
+    {"user_id": "dan", "name": "Dan (Men's department)", "brands": null, "departments": ["Men"]},
+    {"user_id": "carol", "name": "Carol (CEO, all products)", "brands": null, "departments": null}
+  ]
+}

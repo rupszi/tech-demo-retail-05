@@ -22,6 +22,12 @@ class Settings:
     turn_token_budget: int = 60_000
     reports_db_path: str = "data/reports.sqlite"
     trace_dir: str = "logs"
+    profiles_path_override: str | None = None
+
+    @property
+    def profiles_path(self) -> str:
+        """User profiles differ per backend because the brands differ."""
+        return self.profiles_path_override or f"config/users.{self.data_backend}.json"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -38,4 +44,5 @@ class Settings:
             turn_token_budget=int(env("TURN_TOKEN_BUDGET", "60000")),
             reports_db_path=env("REPORTS_DB_PATH", "data/reports.sqlite"),
             trace_dir=env("TRACE_DIR", "logs"),
+            profiles_path_override=env("PROFILES_PATH") or None,
         )

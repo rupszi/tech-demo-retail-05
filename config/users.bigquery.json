@@ -1,0 +1,8 @@
+{
+  "users": [
+    {"user_id": "alice", "name": "Alice (casual brands)", "brands": ["Allegra K", "Levi's", "Roxy"], "departments": null},
+    {"user_id": "bob", "name": "Bob (workwear and surf brands)", "brands": ["Carhartt", "Diesel", "Quiksilver"], "departments": null},
+    {"user_id": "dan", "name": "Dan (Men's department)", "brands": null, "departments": ["Men"]},
+    {"user_id": "carol", "name": "Carol (CEO, all products)", "brands": null, "departments": null}
+  ]
+}
