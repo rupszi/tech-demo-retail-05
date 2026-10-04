@@ -1,7 +1,8 @@
 """The tools the model can call, and the code that runs them.
 
 Adding a capability (a chart, an email, a web search) means adding one `ToolSpec` and one method
-here. Tools never raise: a failure is returned to the model as a result it can act on.
+here, and one branch in the `tools` step of the graph, which is where calls are dispatched. Tools
+never raise: a failure is returned to the model as a result it can act on.
 """
 
 from __future__ import annotations

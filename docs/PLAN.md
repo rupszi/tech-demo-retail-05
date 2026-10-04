@@ -23,7 +23,7 @@ Assessment focus: system design, the technical explanation, and an elegant proto
 | 3 | High-stakes oversight (destructive ops) | **yes** | yes |
 | 4 | Continuous improvement (user and system loops) | no | yes |
 | 5 | Resilience and graceful error handling | **yes** | yes |
-| 6 | Quality assurance | 636 offline tests and 79 against BigQuery | yes |
+| 6 | Quality assurance | 639 offline tests and 79 against BigQuery | yes |
 | 7 | Observability | **yes** | yes |
 | 8 | Agility (persona management) | tone file read on every question | yes |
 

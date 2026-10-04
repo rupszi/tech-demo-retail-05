@@ -43,6 +43,7 @@ BLOCKED = {
     "off_topic": [
         "Write me a poem about denim",
         "Tell me a joke",
+        "Tell me a story about a dragon",
         "What's a good lasagna recipe?",
         "Give me the weather forecast for Austin",
     ],
@@ -72,6 +73,7 @@ ALLOWED = [
     "Save this as a report called Q1 review",
     "Show me my saved reports",
     "What rules of thumb explain the seasonality?",
+    "Tell me the story behind the revenue drop last quarter",
 ]
 
 

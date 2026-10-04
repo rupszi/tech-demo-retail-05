@@ -131,11 +131,10 @@ def build_graph(deps: AgentDeps):
         def finish(text: str, outcome: str) -> dict:
             return {"messages": [_text_message(text)], "answer": text, "outcome": outcome}
 
-        if (
-            state["llm_calls"] >= settings.max_llm_calls
-            or state["tokens"] >= settings.turn_token_budget
-        ):
-            tracer.event("budget", "exceeded", llm_calls=state["llm_calls"], tokens=state["tokens"])
+        out_of_calls = state["llm_calls"] >= settings.max_llm_calls
+        if out_of_calls or state["tokens"] >= settings.turn_token_budget:
+            limit = "calls" if out_of_calls else "tokens"
+            tracer.event("budget", limit, llm_calls=state["llm_calls"], tokens=state["tokens"])
             return finish(MSG_BUDGET, "failed")
         # Checked between steps: a step that is already running is allowed to finish.
         elapsed = time.time() - state["turn_started_at"]
@@ -146,12 +145,10 @@ def build_graph(deps: AgentDeps):
             limit = _human_duration(settings.turn_time_budget_s)
             return finish(MSG_TIME.format(limit=limit), "failed")
 
-        system = build_system_prompt(
-            deps.profile,
-            load_persona(settings.persona_path),
-            find_similar(state["question"], deps.trios),
-        )
-        with tracer.step("llm", deps.llm.name) as step:
+        examples = find_similar(state["question"], deps.trios)
+        system = build_system_prompt(deps.profile, load_persona(settings.persona_path), examples)
+        # The trace keeps which analyst examples the model was given, to explain an answer later.
+        with tracer.step("llm", deps.llm.name, examples=[t.name for t in examples]) as step:
             try:
                 response = deps.llm.generate(
                     system, _context(state["messages"], state["turn_start"]), TOOL_SPECS

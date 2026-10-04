@@ -12,6 +12,10 @@ def sql_steps(result):
     return [s for s in result.trace["steps"] if s["kind"] == "sql"]
 
 
+def budget_step(result):
+    return next(s for s in result.trace["steps"] if s["kind"] == "budget")
+
+
 def tool_results(session, index=-1):
     """The tool results the model was shown in its `index`-th request."""
     return [m["result"] for m in session.model.requests[index]["messages"] if m["role"] == "tool"]
@@ -58,6 +62,12 @@ def test_user_scope_and_analyst_examples_are_in_the_instructions(chat):
     system = session.model.requests[0]["system"]
     assert "Alder & Finch, Brightwave, Foxglove" in system
     assert "90 days pass without an order" in system  # the analysts' definition of churn
+
+
+def test_the_trace_names_the_analyst_examples_the_model_was_given(chat):
+    result = chat(says("ok")).ask("Why did our churn rate spike last month?")
+    model_step = next(s for s in result.trace["steps"] if s["kind"] == "llm")
+    assert model_step["examples"][0] == "churn_definition"
 
 
 def test_tone_file_is_read_on_every_question(chat, tmp_path):
@@ -154,11 +164,13 @@ def test_work_limit_per_question_is_enforced(chat):
     result = session.ask("Keep counting")
     assert result.answer == MSG_BUDGET and result.outcome == "failed"
     assert session.model.calls == 3
+    assert budget_step(result)["name"] == "calls"  # the trace says which limit was reached
 
 
 def test_token_budget_is_enforced(chat):
     session = chat(says("", call("run_sql", sql=COUNT), tokens=70_000), turn_token_budget=60_000)
-    assert session.ask("Count orders").answer == MSG_BUDGET
+    result = session.ask("Count orders")
+    assert result.answer == MSG_BUDGET and budget_step(result)["name"] == "tokens"
 
 
 def test_a_question_that_runs_past_the_time_limit_is_stopped_between_steps(chat, monkeypatch):
@@ -172,7 +184,7 @@ def test_a_question_that_runs_past_the_time_limit_is_stopped_between_steps(chat,
     result = session.ask("Write a very long report")
     assert "time limit (about 2 minutes)" in result.answer and result.outcome == "failed"
     assert session.model.calls == 1  # the step in progress finished; no further step started
-    stop = next(s for s in result.trace["steps"] if s["kind"] == "budget")
+    stop = budget_step(result)
     assert (stop["name"], stop["seconds"], stop["limit"]) == ("time", 200, 120)
 
 

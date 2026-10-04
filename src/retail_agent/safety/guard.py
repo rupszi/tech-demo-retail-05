@@ -3,7 +3,7 @@
 These rules stop the obvious cases (prompt injection, requests for personal data, probing for
 secrets, clearly unrelated requests) without spending tokens. They are not what keeps data safe:
 that is the SQL gate and the scrubber, which hold even if a message gets past this file. Subtler
-off-topic requests are caught by the intent router, which understands meaning.
+off-topic requests are left to the model, which is instructed to decline them without a query.
 """
 
 from __future__ import annotations
@@ -59,8 +59,10 @@ _RULES: list[tuple[str, re.Pattern[str]]] = [
     (
         "off_topic",
         re.compile(
-            r"\b(?:write|compose|tell|sing)\b.{0,20}\b(?:poem|song|story|joke|essay|limerick"
-            r"|haiku|lyrics)\b|\b(?:recipe|weather forecast|horoscope|lottery numbers)\b"
+            # "the story behind the drop" is a business question; "a story" is not
+            r"\b(?:write|compose|tell|sing)\b.{0,20}\b(?:poem|song|(?<!the )story|joke|essay"
+            r"|limerick|haiku|lyrics)\b"
+            r"|\b(?:recipe|weather forecast|horoscope|lottery numbers)\b"
         ),
     ),
 ]

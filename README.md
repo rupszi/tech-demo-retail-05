@@ -192,7 +192,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-636 tests run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network.
+639 tests run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network.
 
 A second group of 79 tests checks the same rules against the real BigQuery dataset. It needs the Google Cloud setup above and takes about a minute:
 
@@ -216,7 +216,7 @@ src/retail_agent/
   cli/             the chat interface
 config/            sample token payloads for the demo users, and the tone file
 golden_bucket/     sample analyst examples (question, SQL, report)
-tests/             636 offline tests, and 79 against BigQuery
+tests/             639 offline tests, and 79 against BigQuery
 docs/              design, decisions, example run, plan, tracker, client questions
 ```
 

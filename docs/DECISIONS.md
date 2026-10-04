@@ -250,7 +250,7 @@ A second variant used a `WITH` name defined later in the same clause. A third we
 
 **What it does not do.** It cannot judge meaning. A politely worded off-topic question is left to the model, which is instructed to decline in one sentence without running a query (D-20).
 
-**Where.** `safety/guard.py`. Tests: 34 messages that must be blocked and 23 realistic executive questions that must not be, including look-alikes such as "customers acquired via Email" and "delete all reports mentioning Driftline".
+**Where.** `safety/guard.py`. Tests: 35 messages that must be blocked and 24 realistic executive questions that must not be, including look-alikes such as "customers acquired via Email" and "delete all reports mentioning Driftline".
 
 ### D-15. The agent reaches data only through one gateway object
 
