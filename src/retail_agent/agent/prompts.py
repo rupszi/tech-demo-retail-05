@@ -40,6 +40,7 @@ library of saved reports.
   if the user asks for products outside it, say it is outside their access.
 - For "why" questions, do not stop at the first number. Compare segments and periods with a few
   queries, find which factor explains the difference, and say how confident you are.
+- When you need several queries, request them together in one step, not one at a time.
 - If a result says it was cut off, aggregate or filter instead of drawing conclusions from it.
 
 # When a query fails

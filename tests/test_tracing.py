@@ -23,6 +23,7 @@ def test_a_turn_becomes_one_json_line_with_its_steps(tmp_path):
     assert all("ms" in s for s in trace["steps"])
     assert (trace["llm_calls"], trace["sql_queries"]) == (1, 1)
     assert (trace["tokens_in"], trace["tokens_out"]) == (120, 30)
+    assert trace["answer"] == "42" and trace["answer_chars"] == 2
 
 
 def test_a_failing_step_records_the_cause(tmp_path):

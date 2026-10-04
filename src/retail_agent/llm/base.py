@@ -48,11 +48,16 @@ class LLMResponse:
 
 
 class LLMError(Exception):
-    """A model call failed. `transient` means the same request may succeed if tried again."""
+    """A model call failed.
 
-    def __init__(self, message: str, *, transient: bool):
+    `transient` means the same request may succeed if tried again. `retry_after` is how long the
+    provider asked us to wait, when it said so (rate limits do).
+    """
+
+    def __init__(self, message: str, *, transient: bool, retry_after: float | None = None):
         super().__init__(message)
         self.transient = transient
+        self.retry_after = retry_after
 
 
 class LLMUnavailable(LLMError):

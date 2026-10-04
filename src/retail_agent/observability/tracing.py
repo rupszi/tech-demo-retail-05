@@ -89,6 +89,7 @@ class Tracer:
         sql = [s for s in steps if s["kind"] == "sql"]
         turn.update(
             outcome=outcome,
+            answer=answer,  # already scrubbed; kept so a bad answer can be read next to its steps
             answer_chars=len(answer),
             duration_ms=round((time.perf_counter() - self._started) * 1000),
             llm_calls=len(llm),

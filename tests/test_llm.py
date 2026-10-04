@@ -1,6 +1,6 @@
 import pytest
 
-from retail_agent.llm import LLMUnavailable, ResilientLLM
+from retail_agent.llm import LLMError, LLMUnavailable, ResilientLLM
 from retail_agent.llm.gemini import _to_contents
 
 from .fakes import ScriptedLLM, permanent, says, transient
@@ -54,6 +54,35 @@ def test_raises_unavailable_when_everything_fails():
     llm, _ = resilient(ScriptedLLM(*[transient()] * 3), ScriptedLLM(*[transient()] * 3))
     with pytest.raises(LLMUnavailable):
         llm.generate("s", [], [])
+
+
+def test_the_wait_asked_for_by_the_provider_is_honoured():
+    model = ScriptedLLM(LLMError("429", transient=True, retry_after=3.0), says("ok"))
+    llm, sleeps = resilient(model)
+    assert llm.generate("s", [], []).text == "ok" and sleeps == [3.5]
+
+
+def test_a_long_requested_wait_falls_back_instead_of_waiting():
+    primary = ScriptedLLM(LLMError("429", transient=True, retry_after=45.0))
+    fallback = ScriptedLLM(says("from fallback"))
+    llm, sleeps = resilient(primary, fallback, max_delay=20.0)
+    assert llm.generate("s", [], []).text == "from fallback"
+    assert primary.calls == 1 and sleeps == []
+
+
+def test_retry_delay_is_read_from_a_gemini_rate_limit_error():
+    from types import SimpleNamespace
+
+    from retail_agent.llm.gemini import _retry_after
+
+    def error(details):
+        return SimpleNamespace(details=details)
+
+    quota = {"error": {"details": [{"@type": "x/QuotaFailure"}, {"retryDelay": "3s"}]}}
+    assert _retry_after(error(quota)) == 3.0
+    assert _retry_after(error({"error": {"details": [{"retryDelay": "0.25s"}]}})) == 0.25
+    assert _retry_after(error({"error": {}})) is None
+    assert _retry_after(error(None)) is None
 
 
 def test_every_failure_is_reported_for_tracing():

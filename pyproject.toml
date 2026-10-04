@@ -18,6 +18,9 @@ dependencies = [
     "langgraph>=0.6",
 ]
 
+[project.scripts]
+retail-agent = "retail_agent.cli.app:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8",

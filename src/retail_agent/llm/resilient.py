@@ -1,7 +1,8 @@
 """Keeps the conversation alive when the model provider has a bad moment.
 
 Transient failures (rate limits, timeouts, server errors) are retried with exponential backoff and
-jitter. When a model keeps failing, the next model in the list is tried. If nothing works the
+jitter, or after the wait the provider asks for. When a model keeps failing, or asks for a wait
+longer than a user should sit through, the next model in the list is tried. If nothing works the
 caller gets `LLMUnavailable` and can tell the user, instead of the application crashing.
 """
 
@@ -49,6 +50,11 @@ class ResilientLLM:
                         self.on_failure(model.name, attempt, e)
                     if not e.transient or attempt == self._attempts:
                         break  # give up on this model and fall back to the next one
-                    delay = min(self._max_delay, self._base_delay * 2 ** (attempt - 1))
-                    self._sleep(delay * random.uniform(0.5, 1.5))
+                    if e.retry_after is not None:
+                        if e.retry_after > self._max_delay:
+                            break  # falling back now is better than making the user wait
+                        self._sleep(e.retry_after + 0.5)
+                    else:
+                        delay = min(self._max_delay, self._base_delay * 2 ** (attempt - 1))
+                        self._sleep(delay * random.uniform(0.5, 1.5))
         raise LLMUnavailable(f"All models failed. Last error: {last_error}") from last_error

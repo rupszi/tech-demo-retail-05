@@ -56,7 +56,11 @@ class GeminiLLM:
                 model=self.name, contents=_to_contents(messages), config=config
             )
         except errors.APIError as e:
-            raise LLMError(f"{self.name}: {e}", transient=e.code in _TRANSIENT_CODES) from e
+            raise LLMError(
+                f"{self.name}: {e}",
+                transient=e.code in _TRANSIENT_CODES,
+                retry_after=_retry_after(e),
+            ) from e
         except (httpx.HTTPError, ConnectionError, TimeoutError) as e:
             raise LLMError(f"{self.name}: network error: {e}", transient=True) from e
         return self._parse(response)
@@ -90,6 +94,19 @@ class GeminiLLM:
                 else 0
             ),
         )
+
+
+def _retry_after(error: errors.APIError) -> float | None:
+    """The wait the API asks for on a rate limit, e.g. {"retryDelay": "3s"}."""
+    details = error.details if isinstance(error.details, dict) else {}
+    for item in details.get("error", {}).get("details", []):
+        delay = item.get("retryDelay") if isinstance(item, dict) else None
+        if isinstance(delay, str) and delay.endswith("s"):
+            try:
+                return float(delay[:-1])
+            except ValueError:
+                return None
+    return None
 
 
 def _to_contents(messages: Sequence[Message]) -> list[types.Content]:
