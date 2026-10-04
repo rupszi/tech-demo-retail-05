@@ -4,15 +4,15 @@ Updated in the same commit as the work it describes. Gate definitions are in [PL
 
 **Legend:** ⬜ not started · 🟦 in progress · ✅ done (all gates met) · ⛔ blocked
 
-**Last updated:** 2026-10-04 · **Current phase:** 1 · **Overall:** 1 / 10 phases
+**Last updated:** 2026-10-04 · **Current phase:** 2 · **Overall:** 2 / 10 phases
 
 ## Phase status
 
 | # | Phase | Status | Gates met | Evidence / notes |
 |---|---|:-:|:-:|---|
 | 0 | Scaffold | ✅ | 5 / 5 | `uv sync`, `uv run pytest` (1 passed), `ruff check` and `ruff format --check` clean, `.env` ignored (`git check-ignore`), layout per plan |
-| 1 | Mock data and data layer | ⬜ | 0 / 5 | |
-| 2 | Safety layer | ⬜ | 0 / 7 | |
+| 1 | Mock data and data layer | ✅ | 5 / 5 | 22 tests pass: deterministic generator, schema match, referential integrity, planted patterns (`test_mock_data.py`); shared backend behaviour and BigQuery dry-run/byte-cap/error classification with stubbed client (`test_backends.py`) |
+| 2 | Safety layer | 🟦 | 0 / 7 | |
 | 3 | LLM layer and resilience | ⬜ | 0 / 4 | |
 | 4 | Agent graph | ⬜ | 0 / 5 | |
 | 5 | Reports and delete flow | ⬜ | 0 / 7 | |
@@ -49,3 +49,4 @@ Updated in the same commit as the work it describes. Gate definitions are in [PL
 |---|---|
 | 2026-10-01 | Repository initialised, remote set, plan and tracker written |
 | 2026-10-04 | Phase 0 complete: scaffold, tooling, config, env template |
+| 2026-10-04 | Phase 1 complete: mock data generator, DuckDB and BigQuery backends |

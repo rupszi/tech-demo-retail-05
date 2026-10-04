@@ -1,0 +1,118 @@
+from types import SimpleNamespace
+
+import pytest
+from google.api_core import exceptions as gexc
+
+from retail_agent.data.base import DataError
+from retail_agent.data.bigquery_backend import BigQueryBackend
+from retail_agent.data.schema import TABLES
+
+
+# ---- contract: DuckDB backend ----------------------------------------------------------------
+def test_schema_matches_mock_tables(backend):
+    for table, cols in TABLES.items():
+        got = backend._con.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = ? "
+            "ORDER BY ordinal_position",
+            [table],
+        ).fetchall()
+        assert [g[0] for g in got] == [c.name for c in cols]
+        assert backend.get_schema(table) == cols
+
+
+def test_execute_bigquery_dialect(backend):
+    df = backend.execute(
+        "SELECT FORMAT_TIMESTAMP('%Y-%m', created_at) AS month, "
+        "ROUND(SUM(sale_price), 2) AS revenue "
+        "FROM order_items GROUP BY month ORDER BY month LIMIT 5"
+    )
+    assert list(df.columns) == ["month", "revenue"] and len(df) == 5
+
+
+def test_dry_run_ok(backend):
+    assert backend.dry_run("SELECT COUNT(*) FROM orders").bytes_processed is None
+
+
+@pytest.mark.parametrize("sql", ["SELEC 1", "SELECT nope FROM orders", "SELECT * FROM not_a_table"])
+def test_bad_sql_is_syntax_error(backend, sql):
+    for fn in (backend.dry_run, backend.execute):
+        with pytest.raises(DataError) as e:
+            fn(sql)
+        assert e.value.kind == "syntax"
+
+
+def test_unknown_table_schema(backend):
+    with pytest.raises(DataError):
+        backend.get_schema("information_schema")
+
+
+# ---- BigQuery backend with a stubbed client ---------------------------------------------------
+class FakeJob:
+    def __init__(self, bytes_processed=1000, error=None, df=None):
+        self.total_bytes_processed = bytes_processed
+        self._error, self._df = error, df
+
+    def result(self, timeout=None):
+        if self._error:
+            raise self._error
+        return SimpleNamespace(to_dataframe=lambda **kw: self._df)
+
+
+class FakeClient:
+    def __init__(self, job=None, query_error=None):
+        self.job, self.query_error, self.configs = job, query_error, []
+
+    def query(self, sql, job_config=None):
+        self.configs.append(job_config)
+        if self.query_error:
+            raise self.query_error
+        return self.job
+
+
+def bq(client, cap=10_000):
+    return BigQueryBackend("proj", max_bytes_billed=cap, client=client)
+
+
+def test_bq_dry_run_flags_and_cost():
+    client = FakeClient(FakeJob(bytes_processed=5000))
+    result = bq(client).dry_run("SELECT 1")
+    cfg = client.configs[0]
+    assert result.bytes_processed == 5000
+    assert cfg.dry_run is True and cfg.maximum_bytes_billed == 10_000
+    assert str(cfg.default_dataset).endswith("thelook_ecommerce")
+
+
+def test_bq_dry_run_rejects_expensive_query():
+    with pytest.raises(DataError) as e:
+        bq(FakeClient(FakeJob(bytes_processed=99_999))).dry_run("SELECT 1")
+    assert e.value.kind == "too_expensive"
+
+
+def test_bq_execute_sets_byte_cap_and_returns_frame():
+    import pandas as pd
+
+    client = FakeClient(FakeJob(df=pd.DataFrame({"a": [1]})))
+    assert bq(client).execute("SELECT 1")["a"].tolist() == [1]
+    assert client.configs[0].maximum_bytes_billed == 10_000 and client.configs[0].dry_run is False
+
+
+@pytest.mark.parametrize(
+    ("error", "kind"),
+    [
+        (gexc.BadRequest("Unrecognized name: foo"), "syntax"),
+        (gexc.BadRequest("Query exceeded limit for bytes billed: 1000"), "too_expensive"),
+        (gexc.ServiceUnavailable("backend down"), "unavailable"),
+        (gexc.TooManyRequests("slow down"), "unavailable"),
+        (gexc.Forbidden("no access"), "execution"),
+    ],
+)
+def test_bq_error_classification(error, kind):
+    with pytest.raises(DataError) as e:
+        bq(FakeClient(query_error=error)).execute("SELECT 1")
+    assert e.value.kind == kind
+
+
+def test_bq_error_during_result_is_classified():
+    with pytest.raises(DataError) as e:
+        bq(FakeClient(FakeJob(error=gexc.DeadlineExceeded("timeout")))).execute("SELECT 1")
+    assert e.value.kind == "unavailable"
