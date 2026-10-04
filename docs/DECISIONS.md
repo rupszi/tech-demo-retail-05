@@ -26,9 +26,18 @@ Related documents: [PLAN.md](PLAN.md) (scope, phases, exit gates), [TRACKER.md](
 | D-14 | A cheap rule-based guard runs before any model call | Implemented |
 | D-15 | The agent reaches data only through one gateway object | Implemented |
 | D-16 | User profiles are files, one per data backend | Implemented |
-| D-17 | LangGraph for orchestration, Gemini through the `google-genai` SDK | Decided, phase 3-4 |
+| D-17 | LangGraph for orchestration, Gemini through the `google-genai` SDK | Implemented |
 | D-18 | Tooling: `uv`, Python 3.12, `ruff`, `pytest` | Implemented |
 | D-19 | Secrets stay in a local `.env`; nothing sensitive is committed | Implemented |
+| D-20 | One agent loop with tools, not a fixed pipeline | Implemented |
+| D-21 | Self-correction has a budget, and not every failure earns a retry | Implemented |
+| D-22 | Models are an ordered list; a rate-limited model is rested | Implemented |
+| D-23 | A delete is prepared by the model, decided by the user and reported by the application | Implemented |
+| D-24 | Earlier result tables are not resent to the model | Implemented |
+| D-25 | Date and revenue conventions are written down, and totals come from SQL | Implemented |
+| D-26 | The Golden bucket is a folder in the prototype | Implemented, confirmed by the client |
+| D-27 | Traces are one JSON line per question; metrics are computed from them | Implemented |
+| D-28 | What was deliberately left out of the prototype | Decided |
 
 ---
 
@@ -79,7 +88,7 @@ Related documents: [PLAN.md](PLAN.md) (scope, phases, exit gates), [TRACKER.md](
 | `too_expensive` | Scan limit exceeded | The model must narrow the query |
 | `unavailable` | Backend down, throttled or timed out | Retry the same SQL later; rewriting will not help |
 
-**Why.** The brief asks for self-correction "without inflating costs". The cheapest way to waste money is to ask the model to rewrite a correct query because the database had a hiccup, or to resend the same broken query. The classification is what lets the retry logic (phase 3-4) choose the right response.
+**Why.** The brief asks for self-correction "without inflating costs". The cheapest way to waste money is to ask the model to rewrite a correct query because the database had a hiccup, or to resend the same broken query. The classification is what lets the retry logic (D-21) choose the right response.
 
 **Where.** `data/base.py`; mapping from Google API errors in `bigquery_backend.py`. Tests: `test_bq_error_classification`.
 
@@ -222,7 +231,7 @@ A second variant used a `WITH` name defined later in the same clause. A third we
 
 ### D-13. Output is scrubbed for personal data as a second layer
 
-**Decision.** Query results pass through a scrubber that masks emails, phone numbers, street addresses, coordinates, card numbers and social security numbers, and counts what it masked. The agent's final answers and saved reports go through the same function (wired in phase 4).
+**Decision.** Query results pass through a scrubber that masks emails, phone numbers, street addresses, coordinates, card numbers and social security numbers, and counts what it masked. The agent's final answers and saved reports go through the same function, and questions and answers are scrubbed before they are written to a trace.
 
 **Why.** D-09 should mean there is nothing to scrub. The scrubber is there so that a mistake in that layer, or personal data a user types into the conversation, still does not reach the screen or a saved report. The counts feed observability: a non-zero count is a signal that something upstream is wrong.
 
@@ -236,7 +245,7 @@ A second variant used a `WITH` name defined later in the same clause. A third we
 
 **Why.** It answers the obvious cases instantly and for free. It is deliberately not the security boundary: a message that gets past it still cannot reach personal data or another user's products, because of D-06 to D-10. That is why the rules can be conservative and tuned to avoid blocking real questions.
 
-**What it does not do.** It cannot judge meaning. Deciding that a politely worded question is off-topic is the job of the intent router in phase 4, which uses the model.
+**What it does not do.** It cannot judge meaning. A politely worded off-topic question is left to the model, which is instructed to decline in one sentence without running a query (D-20).
 
 **Where.** `safety/guard.py`. Tests: 34 messages that must be blocked and 23 realistic executive questions that must not be, including look-alikes such as "customers acquired via Email" and "delete all reports mentioning Driftline".
 
@@ -260,17 +269,21 @@ A second variant used a `WITH` name defined later in the same clause. A third we
 
 ### D-17. LangGraph for orchestration, Gemini through the `google-genai` SDK
 
-**Status.** Decided; implemented in phases 3 and 4.
+**Decision.** The conversation flow is a LangGraph graph of four steps (D-20). The model is Gemini, called through Google's `google-genai` SDK behind a small interface of our own, with a scripted implementation for tests.
 
-**Decision.** The conversation flow is a LangGraph graph. The model is Gemini, called through Google's `google-genai` SDK behind a small interface of our own, with a fake implementation for tests.
-
-**Why LangGraph.** Two requirements shape the choice. The delete flow needs execution to stop, wait for a human, and resume exactly where it left off; LangGraph's interrupt and checkpoint mechanism does precisely that. Observability needs to know which step ran, for how long, and with what result; a graph of named steps gives that structure for free. The flow is also explicit and readable as a diagram, which suits a system that has to be explained and audited.
+**Why LangGraph.** Two requirements shape the choice. The delete flow needs execution to stop, wait for a human, and resume exactly where it left off; LangGraph's interrupt and checkpoint mechanism does precisely that, and on resume only the confirmation step runs again. Observability needs to know which step ran, for how long, and with what result; a graph of named steps gives that structure. The flow is also explicit and readable as a diagram, which suits a system that has to be explained and audited.
 
 **Considered instead.** A hand-written loop around the SDK: least dependency, but the pause-and-resume and state persistence would have to be built and tested by hand. Google's Agent Development Kit: a natural fit for Gemini, but more opinionated about deployment and less direct for a custom confirmation step. LangChain's prebuilt agents: hide the control flow that this design needs to make explicit.
 
+**How much of it is used.** Only the core: a state graph, conditional edges, one interrupt and a checkpointer. The model is not called through LangChain's model wrappers. Messages in the graph state are plain dictionaries, so the state serialises without special handling and the provider can be swapped by writing one adapter.
+
+**Tools are run by the graph, not by the SDK.** The SDK can execute tools automatically in a loop. That is switched off, because the graph must see every call: to check it, count it against the budget, trace it, and pause before a delete.
+
 **Experience level.** This is the author's first project with LangGraph. It was chosen for the fit described above and learned for this assignment.
 
-**Model access.** The prototype uses an API key from Google AI Studio, as the brief suggests. The model client will also accept Application Default Credentials through Vertex AI (phase 3), which is what production should use: no long-lived key, and enterprise data terms. At the time of writing, the free tier's terms allow submitted content to be used for product improvement, so it is appropriate for this public dataset only; the terms should be checked before any real data is used.
+**Model access.** The prototype uses an API key from Google AI Studio, as the brief suggests. Setting `GEMINI_AUTH=vertex` makes the same client use Application Default Credentials through Vertex AI, which is what production should use: no long-lived key, and enterprise data terms. That switch is implemented but was not exercised here, because Vertex AI needs billing enabled. At the time of writing, the free tier's terms allow submitted content to be used for product improvement, so it is appropriate for this public dataset only; the terms should be checked before any real data is used.
+
+**Where.** `agent/graph.py`, `llm/base.py`, `llm/gemini.py`.
 
 ### D-18. Tooling
 
@@ -282,6 +295,141 @@ The API key and project ID live in a local `.env` that is git-ignored and has ne
 
 ---
 
+## The agent
+
+These decisions were made while building and running the agent. Several of them come from watching real runs against BigQuery and Gemini, and the entries say what was observed.
+
+### D-20. One agent loop with tools, not a fixed pipeline
+
+**Situation.** There are two common shapes for this kind of system. A fixed pipeline classifies the question, writes SQL, runs it and writes the answer, each as a separate model call. An agent loop gives the model tools and lets it decide what to call until it can answer.
+
+**Decision.** An agent loop: `guard -> agent <-> tools`, plus a separate step for confirming deletes. The model has five tools: `run_sql`, `save_report`, `list_reports`, `get_report`, `delete_reports`.
+
+**Why.** The brief asks for multi-step analysis ("why are users in state X underspending, and how does that compare to state Y"). The number of queries such a question needs is not known in advance, and a loop handles one query or five without special cases. It also needs fewer model calls for simple questions: a question about the data's structure is answered in one call from the table descriptions, with no query. There is no separate "router" call: the model is told to decline unrelated questions, and what it can do is bounded by its tools either way.
+
+**What keeps the loop safe.** Freedom to choose tools is not freedom to do harm: every tool is implemented by code that applies the rules (D-15, D-23), and the loop has a budget (D-21).
+
+**Where.** `agent/graph.py`, `agent/tools.py`. Tests: `tests/test_agent.py`.
+
+### D-21. Self-correction has a budget, and not every failure earns a retry
+
+**Decision.** For each question the agent may correct a failed query twice (`MAX_SQL_RETRIES`). After that, no further query runs and the model is told to explain what it could not do. In addition:
+
+| Situation | Response |
+|---|---|
+| Syntax error, unknown column, personal data column | Retry, with the error message given to the model |
+| A write statement, several statements, a forbidden function | No retry |
+| Empty result | A hint to check filter values, once; then stop |
+| The database is unavailable | The same SQL is retried once by the application; the model is not asked to rewrite it |
+| 8 model calls or 60,000 tokens used on one question | Stop and ask the user to narrow the question |
+
+**Why.** The brief asks for self-correction "before giving up" and "without inflating costs". Those pull in opposite directions, and a fixed budget is the honest way to satisfy both. The distinctions matter because the wrong response wastes money: rewriting a correct query when the database is down, or giving a second chance to a `DROP TABLE`.
+
+**Why errors are cheap.** A parse error is caught by the SQL gate without touching BigQuery. A semantic error is caught by BigQuery's dry-run, which is free. Only valid queries are billed.
+
+**Observed.** In the recorded sessions two of nine queries failed (wrong apostrophe escaping, and a date function BigQuery does not support). Both were corrected on the next attempt, and neither was billed.
+
+**Where.** `Toolbox.run_sql` in `agent/tools.py`. Tests: the "self-correction and its limits" group in `tests/test_agent.py`.
+
+### D-22. Models are an ordered list; a rate-limited model is rested
+
+**Situation.** The first design was "a primary model and a fallback". Real runs on the free tier changed it. The newest model allows 5 requests a minute and 20 a day. Once it was exhausted, every call still tried it first, got a rate-limit error, and only then fell back, which wasted a call each time and kept the limit from clearing.
+
+**Decision.**
+
+- Models are configured as an ordered list (`GEMINI_MODELS`). The first one that is available answers.
+- Timeouts and server errors are retried with exponential backoff and jitter.
+- A rate-limit error carries the wait the provider asks for. A short wait (up to 5 seconds) is waited out. A longer one puts that model to rest for exactly that long, and it is skipped until then.
+- If every model is resting, the agent waits for the soonest one, up to a minute, and the interface says so. Beyond that it tells the user how long to wait.
+
+**Why.** This keeps the assistant usable through the failure a reviewer on the free tier is most likely to meet, and it is also the right behaviour in production: it is a circuit breaker whose timing comes from the provider instead of a guess. A general-purpose circuit breaker shared between instances is described in the design and not built, because a single-user CLI has nothing to share.
+
+**Observed.** The recorded sessions were answered entirely by the third model in the list, with no action from the user.
+
+**Where.** `llm/resilient.py`. Tests: `tests/test_llm.py`, with a fake clock so no test waits.
+
+### D-23. A delete is prepared by the model, decided by the user and reported by the application
+
+**Decision.** The model can call `delete_reports` with a description of what to delete. That call deletes nothing. The graph:
+
+1. finds the matching reports that belong to this user;
+2. stores their ids in the conversation state;
+3. pauses in a separate step and hands the list to the interface;
+4. on "yes", soft-deletes exactly the stored ids; on anything else, deletes nothing;
+5. writes the outcome message itself and ends the turn.
+
+**Why each part.**
+
+- *The pause is a step of its own.* When the graph resumes, only that step runs again, and it reads the ids from the saved state. So the set that is deleted is the set that was shown, even if more matching reports appeared meanwhile.
+- *The model cannot confirm.* The decision arrives through `ChatSession.confirm`, which only the interface calls. There is no tool for it, and a "yes" typed into the chat is an ordinary message that cancels the pending request.
+- *Soft delete and undo.* This is what "without breaking UX" needs: one clear question, and a mistake that can be reversed with `/undo`.
+- *The application reports the outcome.* The first version returned the result to the model and let it write the reply. In a recorded run the delete succeeded, the following model call hit a rate limit, and the user was told to "try again" with no word on whether anything had been deleted. The outcome of a confirmed action is now a fixed message from code. It is also faster and costs no model call.
+
+**Where.** `tools` and `confirm_delete` in `agent/graph.py`; `reports/store.py`. Tests: `tests/test_delete_flow.py`, `tests/test_reports.py`.
+
+### D-24. Earlier result tables are not resent to the model
+
+**Decision.** For each model call, the context is: the earlier questions and final answers (the last 20 messages), plus everything from the current question, including its tool calls and results. Tool calls and result tables from earlier questions are left out.
+
+**Why.** Without this, every question would resend every table the conversation has produced, and the cost of a conversation would grow with its length. The answers already contain the figures that mattered, so follow-up questions still work, and the model can query again if it needs detail.
+
+**Trade-off.** A follow-up that needs a number which was in an old table but not in the old answer costs one extra query.
+
+**Where.** `_context` in `agent/graph.py`. Test: `test_follow_up_sees_earlier_answers_but_not_earlier_tables`.
+
+### D-25. Date and revenue conventions are written down, and totals come from SQL
+
+**Observed.** In recorded runs the smaller model produced a quarterly report that covered "the last 90 days" instead of the calendar quarter, counted returned items as revenue so that its figures disagreed with an earlier answer, and added up a brand's three monthly values itself and got the sum wrong.
+
+**Decision.**
+
+- The instructions state the conventions: revenue excludes cancelled and returned items, with one definition per answer; "last month" and "last quarter" mean complete calendar periods; the date range is always stated; the model never adds up or averages figures itself.
+- The analyst example for quarterly reports returns every total (per month, per brand, and overall) from one SQL statement, so there is nothing left for the model to add up.
+
+**Why this way.** These are business definitions, and the Golden bucket is where the brief says such knowledge lives. Fixing them there changed the behaviour without changing code. After the change, every monetary figure in the recorded report matches the query result.
+
+**What it does not fix.** A model can still misstate a number. The design adds a mechanical check that every figure in an answer appears in that turn's query results; it is not built.
+
+**Where.** `agent/prompts.py`, `golden_bucket/quarterly_report.json`, `golden_bucket/brand_comparison.json`.
+
+### D-26. The Golden bucket is a folder in the prototype
+
+**Decision.** Seven sample trios live in `golden_bucket/` as JSON files. The two most similar to the question, by shared words, are added to the model's instructions.
+
+**Why.** The client confirmed on 2026-10-04 that the bucket is theoretical, that it need not be implemented in the prototype, and that a local folder of sample trios is the right stand-in. Matching on words needs no service and no extra model calls, and the function it sits behind (`find_similar`) is what an embedding search would implement.
+
+**Kept honest by a test.** Every stored SQL statement is run through the SQL gate and the database in the test suite, and all seven were also run on real BigQuery. A trio that stops working fails the build.
+
+**Where.** `golden/retrieval.py`, `golden_bucket/`. Tests: `tests/test_golden.py`.
+
+### D-27. Traces are one JSON line per question; metrics are computed from them
+
+**Decision.** Each question appends one JSON record to `logs/traces.jsonl` with every step: guard decision, model calls (which model answered, tokens), retries and waits, queries (the SQL written, the SQL run, rows, bytes, error code and message), confirmations, and the outcome. `/trace` shows the last one and `/stats` computes the metrics from the file.
+
+**Why.** One record per question answers both operational questions: is it failing (aggregate the records), and why did this answer go wrong (read one record). Computing metrics from traces means they cannot disagree with each other, and a new metric needs no new instrumentation.
+
+**What is not logged.** Result rows, only their count. Questions and answers are scrubbed for personal data first. Time spent waiting for the user to confirm a delete is excluded from latency.
+
+**Considered instead.** A metrics database and a tracing service. Both are right for production, where the same records become OpenTelemetry spans; neither is needed to show the approach.
+
+**Where.** `observability/tracing.py`. Tests: `tests/test_tracing.py`.
+
+### D-28. What was deliberately left out of the prototype
+
+The brief limits the prototype to four requirements, and the client asked for the Golden bucket only as a design. The following were considered and not built, to keep the prototype small enough to read in one sitting.
+
+| Not built | Why not | Where it is designed |
+|---|---|---|
+| A separate model call to classify each question | The agent declines unrelated questions itself; a router would add a call to every question | DESIGN 2 |
+| Embedding search over the Golden bucket | Seven trios; word matching is enough to show the mechanism | DESIGN 3.1 |
+| User preference memory | Design-only requirement | DESIGN 3.4 |
+| An evaluation harness that runs the real model | Design-only requirement; the deterministic layers are tested exhaustively instead | DESIGN 3.6 |
+| A grounding check on figures in answers | Needs tolerance rules for rounding and derived figures to avoid false alarms | DESIGN 3.6 |
+| An admin page for the tone | The tone is a file that is read on every question, which shows the mechanism | DESIGN 3.8 |
+| Database-level row and column policies | Not possible on a public dataset we do not own | DESIGN 3.2 |
+| Streaming answers, a web interface | The brief asks for a CLI | DESIGN 1 |
+| Charts, email, web search | Named in the brief as future extensions | DESIGN 7 |
+
 ## Known limits, and what production adds
 
 These are stated so nobody has to discover them.
@@ -291,9 +439,13 @@ These are stated so nobody has to discover them.
 | Scope enforcement | Enforced by the application only | Add BigQuery row-level security or authorized views, so the database enforces the same rule independently |
 | Personal data | Column allow-list plus pattern scrubber | Add column-level policy tags, and a managed inspection service in place of the patterns |
 | Demographics | Row-level safe columns are allowed | Minimum group size for demographic breakdowns |
-| Input guard | Rules only | Semantic classification by the router (phase 4), plus a managed prompt-safety service |
+| Input guard | Rules, then the model's own instruction to decline | A managed prompt-safety service in front |
 | Identity | Chosen with a command-line flag | Single sign-on; profile from an entitlements service |
 | Local engine | Some BigQuery functions do not translate | Not relevant: production uses BigQuery |
+| Figures in answers | The model can misstate a number; conventions and SQL totals reduce it | A mechanical grounding check before an answer is shown |
+| Conversation state | In memory; ends with the process (reports and traces persist) | Checkpoints in PostgreSQL |
+| Golden bucket retrieval | Shared words over seven files | Embedding index, filtered by the user's scope |
+| Model quality on the free tier | After 20 requests a day per larger model, the lite model answers | Paid capacity; the first model answers everything |
 
 ## Verification against the real dataset
 
@@ -304,3 +456,6 @@ Run on 2026-10-04 with the project `opsfleet-demo`:
 - A bare table name sent straight to BigQuery is refused (D-10).
 - With real brands, each restricted profile sees only its own brands, including a brand name containing an apostrophe, which confirms values are escaped correctly.
 - `SELECT * FROM users` on real data returns only the eight safe columns.
+- All seven analyst examples pass the SQL gate and run on BigQuery, scanning 5 to 10 MB each.
+- Two full conversations were recorded with real Gemini and real BigQuery ([EXAMPLE_RUN.md](EXAMPLE_RUN.md)): 11 questions, 9 answered and 2 stopped by the guard as intended, none failed; two queries failed and were corrected by the agent; a delete was declined, another confirmed and then undone.
+- The figures in the recorded quarterly report were checked against the query result: revenue, order count and the three brand totals all match.
