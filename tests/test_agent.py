@@ -170,8 +170,14 @@ def test_model_outage_gives_a_friendly_message_and_the_chat_continues(chat):
 
 
 def test_rate_limit_tells_the_user_how_long_to_wait(chat):
-    session = chat(LLMUnavailable("rate limited", retry_after=41.2))
+    session = chat(
+        LLMUnavailable("rate limited", retry_after=41.2),
+        LLMUnavailable("rate limited", retry_after=600),
+        LLMUnavailable("daily quota", retry_after=52_580),
+    )
     assert "try again in about 42 seconds" in session.ask("Show revenue").answer
+    assert "try again in about 10 minutes" in session.ask("Show revenue").answer
+    assert "try again in about 15 hours" in session.ask("Show revenue").answer
 
 
 def test_model_retries_are_visible_in_the_trace(chat):

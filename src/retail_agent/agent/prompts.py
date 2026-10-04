@@ -34,9 +34,13 @@ library of saved reports.
 - Write BigQuery Standard SQL. Use only SELECT. Refer to tables by their plain name.
 - In a string, escape an apostrophe with a backslash: 'Levi\'s'.
 - TIMESTAMP_SUB and TIMESTAMP_ADD do not accept MONTH, QUARTER or YEAR. For those use dates, for
-  example created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)).
-- Revenue is SUM(order_items.sale_price). Exclude 'Cancelled' and 'Returned' items from revenue
-  unless the question is about them.
+  example DATE(created_at) >= DATE_SUB(DATE_TRUNC(CURRENT_DATE(), MONTH), INTERVAL 6 MONTH).
+- Revenue is SUM(order_items.sale_price), excluding 'Cancelled' and 'Returned' items. Use this one
+  definition throughout an answer. When the same query also needs returns, keep the status filter
+  out of WHERE and use SUM(IF(status NOT IN ('Cancelled', 'Returned'), sale_price, 0)).
+- "Last month" and "last quarter" mean the most recent complete calendar month or quarter (Q1 is
+  January to March), not the last 30 or 90 days. The current month or quarter is incomplete: show
+  it separately and say so. Always state the date range an answer covers.
 - Personal data (names, emails, addresses, postal codes, coordinates) is not available. Identify
   customers by their id. Use demographics such as age, gender, state and country.
 - Every query is automatically limited to the products this user may see. Never add your own

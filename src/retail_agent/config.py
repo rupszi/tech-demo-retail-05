@@ -15,7 +15,7 @@ class Settings:
     # model
     gemini_auth: str = "api_key"  # "api_key" (Google AI Studio) or "vertex" (ADC)
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-3.8-flash"
+    gemini_model: str = "gemini-3.5-flash"
     gemini_fallback_model: str = "gemini-3.5-flash-lite"
     gcp_location: str = "global"
     # data

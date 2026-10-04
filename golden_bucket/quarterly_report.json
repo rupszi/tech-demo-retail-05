@@ -1,0 +1,17 @@
+{
+  "question": "Create a report for last quarter with insights and action items for next quarter.",
+  "tags": [
+    "quarter",
+    "quarterly",
+    "report",
+    "insights",
+    "action",
+    "items",
+    "summary",
+    "review"
+  ],
+  "sql": "SELECT FORMAT_TIMESTAMP('%Y-%m', oi.created_at) AS month,\n       p.brand,\n       COUNT(DISTINCT oi.order_id) AS orders,\n       ROUND(SUM(IF(oi.status NOT IN ('Cancelled', 'Returned'), oi.sale_price, 0)), 2) AS revenue,\n       ROUND(SAFE_DIVIDE(COUNTIF(oi.status = 'Returned'), COUNTIF(oi.status <> 'Cancelled')), 3) AS return_rate\nFROM order_items AS oi\nJOIN products AS p ON p.id = oi.product_id\nWHERE DATE(oi.created_at) >= DATE_SUB(DATE_TRUNC(CURRENT_DATE(), QUARTER), INTERVAL 3 MONTH)\n  AND DATE(oi.created_at) < DATE_TRUNC(CURRENT_DATE(), QUARTER)\nGROUP BY month, p.brand\nORDER BY month, revenue DESC",
+  "report": "A quarterly report covers the most recent complete calendar quarter, from its first day to its last, never 'the last 90 days'. Name the quarter and its date range in the title. Use the same revenue definition as everywhere else (cancelled and returned items excluded), so the report agrees with the monthly figures. Structure: a two-sentence summary; the trend across the three months; which brands and categories drove it; risks such as rising return rates; then three to five action items for the next quarter, each tied to a number from the report.",
+  "author": "analytics team",
+  "created": "2025-07-03"
+}

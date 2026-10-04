@@ -36,9 +36,7 @@ HISTORY_MESSAGES = 20  # earlier questions and answers kept in the model's conte
 MSG_UNAVAILABLE = (
     "I can't reach the language model right now. Nothing was lost; please try again in a moment."
 )
-MSG_RATE_LIMITED = (
-    "The language model's rate limit has been reached. Please try again in about {seconds} seconds."
-)
+MSG_RATE_LIMITED = "The language model's usage limit has been reached. Please try again in {wait}."
 MSG_BUDGET = (
     "I reached the work limit for a single question before finishing. "
     "Please narrow the question or split it into smaller steps."
@@ -67,6 +65,14 @@ class AgentDeps:
     settings: Settings
     tracer: Tracer
     trios: list[Trio]
+
+
+def _human_duration(seconds: float) -> str:
+    if seconds < 90:
+        return f"about {math.ceil(seconds)} seconds"
+    if seconds < 5400:
+        return f"about {round(seconds / 60)} minutes"
+    return f"about {round(seconds / 3600)} hours"
 
 
 def _text_message(text: str) -> Message:
@@ -136,8 +142,8 @@ def build_graph(deps: AgentDeps):
             except LLMUnavailable as e:
                 step["error"] = str(e)[:300]
                 if e.retry_after:
-                    seconds = math.ceil(e.retry_after)
-                    return finish(MSG_RATE_LIMITED.format(seconds=seconds), "failed")
+                    wait = _human_duration(e.retry_after)
+                    return finish(MSG_RATE_LIMITED.format(wait=wait), "failed")
                 return finish(MSG_UNAVAILABLE, "failed")
             step.update(
                 model=response.model,
