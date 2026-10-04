@@ -56,24 +56,24 @@ From phase 17. Each finding was checked against the code and the documents befor
 | # | Finding | Severity | What was done | Status |
 |---|---|---|---|:-:|
 | 1 | The plan and tracker mixed working notes with the record of what was delivered, and listed a gate that was not a product gate | High | The notes are gone and the gate is dropped. Both documents now hold only what was delivered and how it was checked | ✅ |
-| 2 | The design said that views in our own project keep personal data out of reach on the public dataset | High | | ⬜ |
-| 3 | Extensibility was described as if a tool registry and a "needs confirmation" flag already exist | Medium | | ⬜ |
+| 2 | The design said that views in our own project keep personal data out of reach on the public dataset | High | Corrected in DESIGN 3.2 and in the decision log. Views restrict the company's own data. The public dataset is readable by every account, so on it the SQL gate is the only enforcement | ✅ |
+| 3 | Extensibility was described as if a tool registry and a "needs confirmation" flag already exist | Medium | DESIGN 3.3 and 7 now separate what exists (a declaration, a method and a branch; a pause written for deletes) from what would be added (a registry, a flag, a policy handed to the gateway) | ✅ |
 | 4 | Traces did not record which analyst examples were given to the model | Medium | Every model step in a trace now lists the examples it was given (`examples`). Test: `test_the_trace_names_the_analyst_examples_the_model_was_given` | ✅ |
 | 5 | Loose wording in two recorded answers passed without comment | Medium | | ⬜ |
 | 6 | The example run did not show the brief's own questions on states, churn and revenue by product | Medium | | ⬜ |
-| 7 | No identity provider in the architecture; token expiry not described | Medium | | ⬜ |
-| 8 | No protocols or API surface between the components | Medium | | ⬜ |
-| 9 | Feedback from users drives three loops, but nothing in the design collected it | Medium | | ⬜ |
-| 10 | The time limit is checked between steps; how long one step can run was not stated | Medium | | ⬜ |
-| 11 | The system-level learning loop had no grouping rule and no example of a proposal | Medium | | ⬜ |
-| 12 | Golden bucket: where the index lives was inconsistent; the cache and "strip brands and figures" were unexplained | Low | | ⬜ |
-| 13 | An unverifiable sentence about a console name | Low | | ⬜ |
+| 7 | No identity provider in the architecture; token expiry not described | Medium | The identity provider is in the architecture diagram. DESIGN 1 says who issues the token, how its keys are checked, and what happens when it expires during a conversation | ✅ |
+| 8 | No protocols or API surface between the components | Medium | New part in DESIGN 1, "How the components talk to each other": the API calls, and the protocol on each connection | ✅ |
+| 9 | Feedback from users drives three loops, but nothing in the design collected it | Medium | DESIGN 3.4 describes how feedback is collected and stored, and the API has a call for it. Not built; listed in the limits | ✅ |
+| 10 | The time limit is checked between steps; how long one step can run was not stated | Medium | DESIGN 3.5 gives the bounds of a single step and the worst case (about fifteen minutes if every call to every model hung), with the change that would close it. Not built; listed in the limits | ✅ |
+| 11 | The system-level learning loop had no grouping rule and no example of a proposal | Medium | DESIGN 3.4 says how failures are grouped and gives three kinds of proposal | ✅ |
+| 12 | Golden bucket: where the index lives was inconsistent; the cache and "strip brands and figures" were unexplained | Low | The index is in PostgreSQL only; the cache claim is removed; DESIGN 3.1 explains the stripping | ✅ |
+| 13 | An unverifiable sentence about a console name | Low | Removed | ✅ |
 | 14 | A docstring mentioned a router that does not exist | Low | Corrected in `safety/guard.py`; the docstring of `agent/tools.py` now says what adding a tool takes today | ✅ |
 | 15 | The input guard blocked "Tell me the story behind the revenue drop" | Low | The rule no longer matches "the story"; "tell me a story" is still blocked. Both are test cases in `test_guard.py` | ✅ |
 | 16 | `/trace` names a model step after the first configured model, not the one that answered | Low | | ⬜ |
-| 17 | Small mismatches: the suite's duration, the name of the budget step in a trace, the mixed-order note | Low | | ⬜ |
-| 18 | A query requested in the same step as a delete is run but its result is not used | Low | | ⬜ |
-| 19 | The cost cap and the automatic rollback lacked detail | Low | | ⬜ |
+| 17 | Small mismatches: the suite's duration, the name of the budget step in a trace, the mixed-order note | Low | The decision log says three seconds; a trace names the limit reached (`calls`, `tokens` or `time`), with tests; the mixed-order note is also in DESIGN 3.2 | ✅ |
+| 18 | A query requested in the same step as a delete is run but its result is not used | Low | Left as it is, and recorded as a trade-off in D-23: nothing follows a confirmation except its outcome | ✅ |
+| 19 | The cost cap and the automatic rollback lacked detail | Low | DESIGN 3.5 defines the worst case of a step; DESIGN 3.8 says the rollback waits for a minimum number of answers | ✅ |
 
 Three points were raised as more than a minimum prototype needs, and were left as they are: the plan and tracker themselves (they are the record of how the work was done), the planted patterns in the mock data (the tests for "why" questions depend on them), and the scrubber's patterns for card and social security numbers (a few lines, tested).
 

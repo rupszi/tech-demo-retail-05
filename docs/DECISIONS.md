@@ -303,7 +303,7 @@ A second variant used a `WITH` name defined later in the same clause. A third we
 
 ### D-18. Tooling
 
-`uv` for environments and locking (one command to reproduce the setup on another machine), Python 3.12 (broad library support), `ruff` for lint and format, `pytest` for tests. The full suite runs offline in about two seconds, which keeps the edit-test loop short.
+`uv` for environments and locking (one command to reproduce the setup on another machine), Python 3.12 (broad library support), `ruff` for lint and format, `pytest` for tests. The offline suite runs in about three seconds, which keeps the edit-test loop short.
 
 ### D-19. Secrets
 
@@ -343,7 +343,7 @@ These decisions were made while building and running the agent. Several of them 
 
 **Why errors are cheap.** A parse error is caught by the SQL gate without touching BigQuery. A semantic error is caught by BigQuery's dry-run, which is free. Only valid queries are billed.
 
-**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 76 seconds for that reason. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is checked between steps; a step that is already running is allowed to finish.
+**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 76 seconds for that reason. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is checked between steps; a step that is already running is allowed to finish. So it is not a hard deadline: how long a single step can run in the worst case is stated in [DESIGN 3.5](DESIGN.md#35-resilience), with the change that would close the gap.
 
 **Observed.** In the recorded sessions two of eleven queries failed, both on a date function that BigQuery does not support for timestamps. Both were corrected on the next attempt, and neither was billed. Earlier runs also showed wrong apostrophe escaping, corrected the same way.
 
@@ -382,6 +382,7 @@ These decisions were made while building and running the agent. Several of them 
 - *The model cannot confirm.* The decision arrives through `ChatSession.confirm`, which only the interface calls. There is no tool for it, and a "yes" typed into the chat is an ordinary message that cancels the pending request.
 - *Deleting is permanent.* The first version was a soft delete with an `/undo` command. The client then said that deleted reports do not need to be recoverable, so the restore function, the command and the extra columns were removed. This also makes the confirmation mean what it says: the brief calls the action destructive, and now it is. The confirmation and the outcome both state that it cannot be undone.
 - *The audit log outlives the reports.* The request, and the confirmation or the cancellation, are recorded with the report ids, and the titles of what was requested and of what was deleted are kept. Report ids are never reused, so an id in the log cannot come to mean a different report.
+- *Nothing follows a confirmation except its outcome.* If the model asks for a query and a delete in the same step, the query runs, but the turn ends with the outcome of the delete and the query's result is not used. The user asks again. This is rare, and the alternative, another model call after a confirmed action, is what the next point removes.
 - *The application reports the outcome.* The first version returned the result to the model and let it write the reply. In a recorded run the delete succeeded, the following model call hit a rate limit, and the user was told to "try again" with no word on whether anything had been deleted. The outcome of a confirmed action is now a fixed message from code. It is also faster and costs no model call.
 
 **Where.** `tools` and `confirm_delete` in `agent/graph.py`; `reports/store.py`. Tests: `tests/test_delete_flow.py`, `tests/test_reports.py`, and the prompt wording in `tests/test_cli.py`.
@@ -423,7 +424,7 @@ These decisions were made while building and running the agent. Several of them 
 
 ### D-27. Traces are one JSON line per question; metrics are computed from them
 
-**Decision.** Each question appends one JSON record to `logs/traces.jsonl` with every step: guard decision, model calls (which model answered, tokens), retries and waits, queries (the SQL written, the SQL run, rows, bytes, error code and message), confirmations, and the outcome. `/trace` shows the last one and `/stats` computes the metrics from the file.
+**Decision.** Each question appends one JSON record to `logs/traces.jsonl` with every step: guard decision, model calls (which model answered, tokens, the analyst examples it was given), retries and waits, queries (the SQL written, the SQL run, rows, bytes, error code and message), confirmations, and the outcome. `/trace` shows the last one and `/stats` computes the metrics from the file.
 
 **Why.** One record per question answers both operational questions: is it failing (aggregate the records), and why did this answer go wrong (read one record). Computing metrics from traces means they cannot disagree with each other, and a new metric needs no new instrumentation.
 
@@ -448,7 +449,10 @@ The brief limits the prototype to four requirements, and the client asked for th
 | An evaluation harness that runs the real model | Design-only requirement; the deterministic layers are tested exhaustively instead | DESIGN 3.6 |
 | A grounding check on figures in answers | Needs tolerance rules for rounding and derived figures to avoid false alarms | DESIGN 3.6 |
 | The admin page and the automated quality gate for tone changes | Design-only requirement; the tone is a file that is read on every question, which shows the mechanism | DESIGN 3.8 |
-| Database permissions and views | Not possible on a public dataset we do not own | DESIGN 3.2 |
+| Database permissions and views | They cannot restrict a public dataset, which every Google Cloud account can read | DESIGN 3.2 |
+| Collecting feedback on answers | Design-only requirement; the CLI has no place for it | DESIGN 3.4 |
+| A tool registry and a general "needs confirmation" flag | Five tools and one destructive action did not need them | DESIGN 3.3 and 7 |
+| A hard deadline inside a step | The time limit is checked between steps, which covers the failures seen in practice | DESIGN 3.5 |
 | Streaming answers, a web interface | The brief asks for a CLI | DESIGN 1 |
 | Charts, email, Slack, web search | Named as future extensions | DESIGN 7 |
 
@@ -479,13 +483,15 @@ These are stated so nobody has to discover them.
 |---|---|---|
 | Identity | A sample token payload chosen with a command-line option; no signature check | The API verifies the JWT sent by the front end |
 | Brand scope | Enforced by the SQL gate only | The gate remains the enforcement point, because BigQuery never sees the application's token; identity federation is an option if a second enforcement is wanted |
-| Personal data | Column allow-list plus pattern scrubber | Views without the personal data columns, so BigQuery refuses them too, and a managed inspection service in place of the patterns |
+| Personal data | Column allow-list plus pattern scrubber. On the public dataset nothing in BigQuery can add to this | On the company's own data, access only to views without the personal data columns, so BigQuery refuses them too; and a managed inspection service in place of the patterns |
 | Input guard | Rules, then the model's own instruction to decline | A managed prompt-safety service in front |
 | Local engine | Some BigQuery functions do not translate | Not relevant: production uses BigQuery |
 | Figures in answers | The model can misstate a number; conventions and SQL totals reduce it | A mechanical grounding check before an answer is shown |
 | Conversation state | In memory; ends with the process (reports and traces persist) | Checkpoints in PostgreSQL |
 | Golden bucket retrieval | Shared words over seven files | An embedding index over about 1,000 trios |
 | Cost cap | Limits on model calls, tokens, time and bytes | One setting in dollars, $1 per question by default, translated into those limits |
+| Time limit | Checked between steps; one slow step can run past it | Each step is given the remaining time as its deadline |
+| Feedback | Not collected | Helpful or not helpful under each answer, stored with the trace id |
 | Model quality on the free tier | After 20 requests a day per larger model, the lite model answers | Paid capacity; the first model answers everything |
 
 ## Verification against the real dataset
