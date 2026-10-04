@@ -255,7 +255,7 @@ The client answered all twelve questions on 2026-10-04 ([QUESTIONS.md](QUESTIONS
 
 ### Phase 10: Record the answers and the plan
 - [x] All twelve answers recorded in `QUESTIONS.md` with the date and what each one changes
-- [x] This section and the tracker cover phases 10 to 17
+- [x] This section and the tracker cover the phases of the revision
 
 ### Phase 11: Scope by brand, from token claims
 Code: `safety/profiles.py`, `safety/scoping.py`, `config/users.*.json`, `agent/prompts.py`, `cli/app.py`.
@@ -298,7 +298,7 @@ Code: `config.py`, `agent/graph.py`.
 - [x] Setup verified from a fresh clone, with `uv` and with `pip`
 
 ### Phase 17: Independent review
-Planned as five separate review passes over the finished repository. Two were run: coverage of the brief and of the client's answers, and a mechanical sweep for stale text, links, counts and settings. The other three (security of the SQL gate and scoping, documentation against code, correctness of the agent and the delete flow) were not run. That ground is covered by the tests and by the checks of phase 15, but it did not get a separate review at the time. The three passes were run in phase 18.
+Planned as five separate review passes over the finished repository. Two were run: coverage of the brief and of the client's answers, and a mechanical sweep for stale text, links, counts and settings. The other three (security of the SQL gate and scoping, documentation against code, correctness of the agent and the delete flow) were not run. That ground is covered by the tests and by the checks of phase 15, but it did not get a separate review at the time. All three were run in phase 18, together with a second pass on coverage of the brief.
 
 The fixes follow one rule: the smallest change that settles the finding. This is a prototype for an evaluation, so a finding about the design is answered in the design, and code changes only where the code was wrong or a trace was missing something.
 - [x] Both passes completed, each reporting findings with file and line

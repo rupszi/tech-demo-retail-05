@@ -84,7 +84,7 @@ The brief asks for "a strict confirmation flow before execution, without breakin
 
 **Answer.** Yes.
 
-**What it changes.** Nothing.
+**What it changes.** Nothing. As built, only a yes deletes. In the CLI, `n`, pressing Enter, a closed input or Ctrl-C cancel, and any other reply is asked again.
 
 ### 5. Golden Knowledge bucket
 

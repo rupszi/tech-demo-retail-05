@@ -39,7 +39,7 @@ class Tracer:
             pass
         self._session_id = session_id
         self._user_id = user_id
-        self._on_step = on_step  # lets the interface show progress ("Running query...")
+        self._on_step = on_step  # lets the interface show progress ("Querying the data…")
         self._turn: dict[str, Any] | None = None  # the trace being built; None between questions
         self._started = 0.0
         self._paused_at: float | None = None
@@ -189,7 +189,8 @@ def compute_stats(traces: list[dict[str, Any]]) -> dict[str, Any]:
         "latency_ms_p95": _percentile(durations, 0.95),
         "tokens_per_question": round(sum(t["tokens_in"] + t["tokens_out"] for t in traces) / n),
         "llm_calls_per_question": round(sum(t["llm_calls"] for t in traces) / n, 2),
-        "llm_retries": sum(t["llm_retries"] for t in traces),
+        "llm_retries": sum(t["llm_retries"] for t in traces),  # failed attempts, see below
+        "llm_failures_by_model": _count(s["name"] for s in steps("llm_retry")),
         "sql_queries": queries,
         "sql_error_rate": round(sum(t["sql_errors"] for t in traces) / queries, 3)
         if queries
@@ -202,6 +203,7 @@ def compute_stats(traces: list[dict[str, Any]]) -> dict[str, Any]:
             if had_sql_error
             else None
         ),
+        "sql_errors_by_code": _count(s["error"] for s in steps("sql") if s.get("error")),
         "guard_blocks_by_category": _count(s["name"] for s in steps("guard") if s.get("blocked")),
         "pii_redactions": sum(t["redactions"] for t in traces),
         "deletes_confirmed": sum(1 for s in confirmations if s.get("approved")),

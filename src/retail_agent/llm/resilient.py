@@ -19,7 +19,7 @@ from collections.abc import Callable, Sequence
 from retail_agent.llm.base import LLM, LLMError, LLMResponse, LLMUnavailable, Message, ToolSpec
 
 RetryHook = Callable[[str, int, LLMError], None]
-_BACKOFF_CAP = 20.0  # seconds; the longest pause between two retries of one model
+_BACKOFF_CAP = 20.0  # seconds; the longest pause between two retries, before jitter
 
 
 class ResilientLLM:

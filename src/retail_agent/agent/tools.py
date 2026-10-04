@@ -1,14 +1,18 @@
 """The tools the model can call, and the code that runs them.
 
-Adding a capability (a chart, an email, a web search) means adding one `ToolSpec` and one method
-here, and one branch in the `tools` step of the graph, which is where calls are dispatched. Tools
-never raise: a failure is returned to the model as a result it can act on.
+Adding a capability (a chart, a web search) means adding one `ToolSpec`, one method on `Toolbox`
+and one line in its `handlers` table. The graph does not change. Two tools are wired into the
+graph itself because they need more than their arguments: `run_sql` works within the limits of
+the question, and `delete_reports` goes through the confirmation step. A tool that fails does
+not end the turn: `run_sql` returns its error as a result the model can act on, and any other
+exception is caught by the graph and reported to the model.
 """
 
 from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from typing import Any
 
 from retail_agent.config import Settings
@@ -96,6 +100,15 @@ class Toolbox:
         self._conversation_id = conversation_id
         self._settings = settings
         self._tracer = tracer
+        # Tools that need nothing but their arguments, by name. This table is the extension
+        # point: a new tool of this kind is added here and nowhere else.
+        self.handlers: dict[str, Callable[[dict], dict]] = {
+            "save_report": lambda args: self.save_report(
+                str(args.get("title", "")), str(args.get("content", ""))
+            ),
+            "list_reports": lambda args: self.list_reports(),
+            "get_report": lambda args: self.get_report(args.get("report_id", 0)),
+        }
 
     # ---- data ------------------------------------------------------------------------------
     def run_sql(
@@ -150,7 +163,7 @@ class Toolbox:
         return payload, failures, empties
 
     def _execute(self, sql: str, deadline: float | None = None) -> QueryResult:
-        """One immediate retry when the backend is briefly unavailable."""
+        """One retry, a second later, when the backend is briefly unavailable."""
 
         def time_left() -> float | None:
             return None if deadline is None else deadline - time.time()

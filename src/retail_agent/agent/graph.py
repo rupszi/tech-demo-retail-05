@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import operator
@@ -179,11 +180,17 @@ def build_graph(deps: AgentDeps):
         # The instructions are rebuilt for every call: the tone file may have been edited, and
         # the analyst examples depend on the question.
         examples = find_similar(state["question"], deps.trios)
-        system = build_system_prompt(deps.profile, load_persona(settings.persona_path), examples)
+        persona = load_persona(settings.persona_path)
+        system = build_system_prompt(deps.profile, persona, examples)
         failure: LLMUnavailable | None = None
-        # The step is named after the model that answers. The trace also keeps which analyst
-        # examples the model was given, to explain an answer later.
-        with tracer.step("llm", "unanswered", examples=[t.name for t in examples]) as step:
+        # The step is named after the model that answers. To explain an answer later, the trace
+        # also keeps which analyst examples the model was given and which tone was in force
+        # (a short fingerprint of the tone text, since the file can change between questions).
+        given = {
+            "examples": [t.name for t in examples],
+            "tone": hashlib.sha1(persona.encode()).hexdigest()[:8],
+        }
+        with tracer.step("llm", "unanswered", **given) as step:
             try:
                 response = deps.llm.generate(
                     system,
@@ -237,14 +244,8 @@ def build_graph(deps: AgentDeps):
                     result, failures, empties = toolbox.run_sql(
                         str(args.get("sql", "")), failures, empties, deadline
                     )
-                elif name == "save_report":
-                    result = toolbox.save_report(
-                        str(args.get("title", "")), str(args.get("content", ""))
-                    )
-                elif name == "list_reports":
-                    result = toolbox.list_reports()
-                elif name == "get_report":
-                    result = toolbox.get_report(args.get("report_id", 0))
+                elif name in toolbox.handlers:  # a tool that needs only its arguments
+                    result = toolbox.handlers[name](args)
                 elif name == "delete_reports":
                     # One confirmation per question: a second request in the same step, or after
                     # the user has already decided, is refused and never reaches the user.

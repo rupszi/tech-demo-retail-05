@@ -12,6 +12,6 @@
   ],
   "sql": "WITH items AS (\n  SELECT p.brand, oi.sale_price, p.cost, oi.status,\n         oi.status NOT IN ('Cancelled', 'Returned') AS sold\n  FROM order_items AS oi\n  JOIN products AS p ON p.id = oi.product_id\n)\nSELECT brand,\n       COUNTIF(sold) AS items_sold,\n       ROUND(SUM(IF(sold, sale_price, 0)), 2) AS revenue,\n       ROUND(SAFE_DIVIDE(SUM(IF(sold, sale_price, 0)), COUNTIF(sold)), 2) AS avg_price,\n       ROUND(SAFE_DIVIDE(SUM(IF(sold, sale_price - cost, 0)), SUM(IF(sold, sale_price, 0))), 3) AS margin,\n       ROUND(SAFE_DIVIDE(COUNTIF(status = 'Returned'), COUNTIF(status <> 'Cancelled')), 3) AS return_rate\nFROM items\nGROUP BY brand\nORDER BY revenue DESC",
   "report": "Compare on four measures: volume, average price, margin and return rate. Revenue, volume and margin count only items that were not cancelled or returned, as everywhere else; the return rate is returned items over all items that were not cancelled. A brand can lead on revenue and still be the weaker business if its margin is thin or its return rate is high. After finding the measure that differs most, look at category mix to explain it.",
-  "author": "analytics team",
-  "created": "2025-06-01"
+  "author": "sample, written for the prototype",
+  "created": "2026-10-04"
 }

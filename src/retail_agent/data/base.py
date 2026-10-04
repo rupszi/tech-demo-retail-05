@@ -17,7 +17,8 @@ class DataError(Exception):
 
     - syntax:        bad SQL or unknown table/column; the model can fix it
     - execution:     failed at run time; the model may be able to fix it
-    - too_expensive: scan limit exceeded; the model must narrow the query
+    - too_expensive: scan limit exceeded, or the query ran past its time limit; the model must
+                     narrow the query
     - unavailable:   backend down or throttled; retrying the same SQL later may work
     """
 

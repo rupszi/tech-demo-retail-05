@@ -63,11 +63,11 @@ class ChatSession:
         gateway = QueryGateway(
             backend, profile, max_rows=settings.max_rows, dataset=settings.bq_dataset
         )
-        toolbox = Toolbox(gateway, self.reports, self.conversation_id, settings, self.tracer)
+        self.toolbox = Toolbox(gateway, self.reports, self.conversation_id, settings, self.tracer)
         self._graph = build_graph(
             AgentDeps(
                 llm=llm,
-                toolbox=toolbox,
+                toolbox=self.toolbox,
                 reports=self.reports,
                 profile=profile,
                 settings=settings,

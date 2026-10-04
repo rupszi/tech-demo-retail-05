@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from google.api_core import exceptions as gexc
+from google.auth import exceptions as auth_exc
 
 from retail_agent.data.base import DataError
 from retail_agent.data.bigquery_backend import BigQueryBackend
@@ -137,6 +138,7 @@ def test_bq_query_timeout_follows_the_time_that_is_left(given, used):
         (gexc.TooManyRequests("slow down"), "unavailable"),
         (gexc.Forbidden("no access"), "execution"),
         (gexc.Forbidden("Quota exceeded: your project exceeded its quota"), "unavailable"),
+        (auth_exc.RefreshError("the credentials have expired"), "unavailable"),
     ],
 )
 def test_bq_error_classification(error, kind):

@@ -15,6 +15,7 @@ from typing import Any
 
 import pandas as pd
 from google.api_core import exceptions as gexc
+from google.auth import exceptions as auth_exc
 from google.cloud import bigquery
 
 from retail_agent.data.base import DataError, DryRunResult
@@ -30,6 +31,7 @@ _UNAVAILABLE = (
     gexc.GatewayTimeout,
     gexc.DeadlineExceeded,
     gexc.RetryError,
+    auth_exc.GoogleAuthError,  # expired or missing credentials: rewriting the SQL cannot help
     TimeoutError,
     ConnectionError,
 )

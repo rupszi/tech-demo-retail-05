@@ -10,6 +10,6 @@
   ],
   "sql": "SELECT u.state,\n       COUNT(DISTINCT oi.user_id) AS customers,\n       ROUND(SAFE_DIVIDE(SUM(oi.sale_price), COUNT(DISTINCT oi.user_id)), 2) AS revenue_per_customer,\n       ROUND(SAFE_DIVIDE(COUNT(DISTINCT oi.order_id), COUNT(DISTINCT oi.user_id)), 2) AS orders_per_customer,\n       ROUND(SAFE_DIVIDE(COUNT(*), COUNT(DISTINCT oi.order_id)), 2) AS items_per_order,\n       ROUND(AVG(oi.sale_price), 2) AS avg_item_price\nFROM order_items AS oi\nJOIN users AS u ON u.id = oi.user_id\nWHERE oi.status NOT IN ('Cancelled', 'Returned')\n  AND u.state IN ('Texas', 'California')\nGROUP BY u.state",
   "report": "Spend per customer is the product of three things: orders per customer, items per order and average item price. Compare each of the three between the two states to see which one explains the gap, and only then look at product mix (category and brand) for that factor. State how many customers each side has, because a small group makes the comparison unreliable.",
-  "author": "analytics team",
-  "created": "2025-06-01"
+  "author": "sample, written for the prototype",
+  "created": "2026-10-04"
 }

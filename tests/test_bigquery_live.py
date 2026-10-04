@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from dotenv import load_dotenv
 
 from retail_agent.config import Settings
 from retail_agent.data import DataError, create_backend
@@ -29,6 +30,9 @@ _BIGQUERY_TYPES = {"INTEGER": "INT64", "FLOAT": "FLOAT64"}
 
 @pytest.fixture(scope="module")
 def live():
+    # Unlike the offline tests, this group needs the developer's own setup (the project that is
+    # billed), so it reads `.env` itself.
+    load_dotenv(ROOT / ".env")
     settings = replace(Settings.from_env(), data_backend="bigquery")
     try:
         backend = create_backend(settings)

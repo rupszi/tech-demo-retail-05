@@ -117,10 +117,13 @@ def test_every_metric_has_the_value_the_traces_imply():
     confirmed = {"kind": "confirmation", "name": "delete_reports", "approved": True}
     cancelled = {"kind": "confirmation", "name": "delete_reports", "approved": False}
     blocked = {"kind": "guard", "name": "pii_request", "blocked": True}
+    failed_call = {"kind": "llm_retry", "name": "model-a", "attempt": 1}
     stats = compute_stats(
         [
             trace("answered", 1000, ["error", "ok"], tokens=(100, 20), calls=2),  # recovered
-            trace("answered", 3000, ["error"], tokens=(200, 40), calls=1, retries=2),  # apologised
+            trace(  # apologised after the failed query
+                "answered", 3000, ["error"], (200, 40), 1, retries=2, steps=[failed_call] * 2
+            ),
             trace("blocked", 0, steps=[blocked]),
             trace(
                 "gave_up", 9000, ["empty"], (300, 60), 3, redactions=2, steps=[confirmed, cancelled]
@@ -138,11 +141,13 @@ def test_every_metric_has_the_value_the_traces_imply():
         "tokens_per_question": 180,
         "llm_calls_per_question": 1.5,
         "llm_retries": 2,
+        "llm_failures_by_model": {"model-a": 2},
         "sql_queries": 4,
         "sql_error_rate": 0.5,
         "empty_result_rate": 0.25,
         # an answer after a failed query is a recovery only if a later query succeeded
         "recovered_after_sql_error": 0.5,
+        "sql_errors_by_code": {"syntax": 2},
         "guard_blocks_by_category": {"pii_request": 1},
         "pii_redactions": 2,
         "deletes_confirmed": 1,

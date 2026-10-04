@@ -1,9 +1,10 @@
 """Builds the model's instructions for one question.
 
-The instructions are assembled fresh every time from four parts: the tone (a file a non-developer
-can edit), the fixed rules, facts about this user and today's date, and the analyst examples most
-similar to the question. Nothing here is a security control: the rules that matter are enforced
-in code by the safety layer, and are repeated here only so the model wastes fewer attempts.
+The instructions are assembled fresh every time from five parts: the fixed rules, the tone (a
+file a non-developer can edit), facts about this user and today's date, the table descriptions,
+and the analyst examples most similar to the question. Nothing here is a security control: the
+rules that matter are enforced in code by the safety layer, and are repeated here only so the
+model wastes fewer attempts.
 """
 
 from __future__ import annotations
@@ -49,6 +50,10 @@ library of saved reports.
   that it is outside their access. Never present it as zero or as missing data.
 - For "why" questions, do not stop at the first number. Compare segments and periods with a few
   queries, find which factor explains the difference, and say how confident you are.
+- State a cause only if a result in this answer supports it. If the data does not explain
+  something, say that it does not.
+- Check words such as "doubled", "spiked", "led" or "the majority" against the figures before
+  you use them.
 - When you need several queries, request them together in one step, not one at a time.
 - If a result says it was cut off, aggregate or filter instead of drawing conclusions from it.
 

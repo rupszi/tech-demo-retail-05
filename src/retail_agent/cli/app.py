@@ -30,7 +30,7 @@ Ask a question about sales, customers or products, or ask for a report.
 
   /reports       list your saved reports
   /report <id>   show a saved report
-  /trace         show the steps behind the last answer
+  /trace [id]    show the steps behind the last answer, or the answer with that trace id
   /stats         show agent metrics across all recorded questions
   /help          show this help
   /quit          leave
@@ -120,7 +120,9 @@ def main(argv: list[str] | None = None) -> int:
                 status["current"] = None
 
     source = "BigQuery" if settings.data_backend == "bigquery" else "local mock data"
-    console.print(f"[bold]Retail analysis assistant[/]  [dim]{source} · {llm.name}[/]")
+    # The models are tried in this order; the line under each answer names the one that answered.
+    models = ", then ".join(settings.gemini_models)
+    console.print(f"[bold]Retail analysis assistant[/]  [dim]{source} · {escape(models)}[/]")
     # Rich reads square brackets as formatting. Text that comes from a token, a user, the model
     # or an error is escaped wherever it is printed, so it is shown as written and a stray
     # bracket cannot break the display.
@@ -162,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _startup_hint(settings: Settings, error: Exception) -> str:
     if isinstance(error, LLMError) or settings.data_backend != "bigquery":
-        return "See the setup section of the README."
+        return "See Quick start in the README."
     return (
         "BigQuery needs Google Cloud credentials and GCP_PROJECT_ID in .env (see the README). "
         "To try the assistant on local mock data without a cloud account, add --backend duckdb."
@@ -190,10 +192,16 @@ def _confirm_delete(request: dict, console: Console) -> bool:
 
 def _footer(result: TurnResult, console: Console) -> None:
     t = result.trace or {}
+    # The models that answered in this turn; usually one, more after a fallback.
+    answered = dict.fromkeys(
+        s["name"] for s in t.get("steps", []) if s["kind"] == "llm" and "error" not in s
+    )
+    models = f" ({escape(', '.join(answered))})" if answered else ""
     console.print(
         f"[dim]trace {result.trace_id} · {t.get('sql_queries', 0)} queries · "
-        f"{t.get('llm_calls', 0)} model calls · {t.get('tokens_in', 0) + t.get('tokens_out', 0):,} "
-        f"tokens · {t.get('duration_ms', 0) / 1000:.1f}s[/]\n"
+        f"{t.get('llm_calls', 0)} model calls{models} · "
+        f"{t.get('tokens_in', 0) + t.get('tokens_out', 0):,} tokens · "
+        f"{t.get('duration_ms', 0) / 1000:.1f}s[/]\n"
     )
 
 
@@ -225,7 +233,16 @@ def _run_command(text: str, session: ChatSession, settings: Settings, console: C
         else:
             console.print(Markdown(f"# {report.title}\n\n{report.content}"))
     elif name == "/trace":
-        _show_trace(session.tracer.last, settings, console)
+        wanted = argument.strip()
+        if not wanted:
+            _show_trace(session.tracer.last, settings, console)
+            return
+        # Any answer can be looked up by the trace id printed under it, also from earlier chats.
+        found = [t for t in read_traces(settings.trace_dir) if t.get("trace_id") == wanted]
+        if found and found[-1].get("user") == owner:
+            _show_trace(found[-1], settings, console)
+        else:
+            console.print("No trace of yours has that id.\n")
     elif name == "/stats":
         table = Table("metric", "value")
         for key, value in compute_stats(read_traces(settings.trace_dir)).items():

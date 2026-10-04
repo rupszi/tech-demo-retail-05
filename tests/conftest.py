@@ -6,6 +6,15 @@ from retail_agent.data.duckdb_backend import DuckDBBackend
 from retail_agent.data.mock import generate
 
 
+@pytest.fixture(autouse=True)
+def no_local_env_file(monkeypatch):
+    """The tests never read the developer's own `.env`: no real key, and no local setting that
+    would make a test about the defaults fail."""
+    monkeypatch.setattr("retail_agent.config.load_dotenv", lambda *args, **kwargs: False)
+    for name in ("DATA_BACKEND", "GEMINI_MODELS", "MAX_ROWS", "MAX_LLM_CALLS", "GOLDEN_DIR"):
+        monkeypatch.delenv(name, raising=False)
+
+
 class FakeClock:
     """Stands in for the `time` module: it only moves when a test, or a sleep, moves it."""
 

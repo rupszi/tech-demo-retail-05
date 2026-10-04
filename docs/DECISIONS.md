@@ -87,8 +87,8 @@ Related documents: [DESIGN.md](DESIGN.md) (how the system works), [PLAN.md](PLAN
 |---|---|---|
 | `syntax` | Bad SQL, unknown table or column | Show the error to the model and let it rewrite the query |
 | `execution` | Failed while running | The model may be able to rewrite |
-| `too_expensive` | Scan limit exceeded | The model must narrow the query |
-| `unavailable` | Backend down, throttled or timed out | Retry the same SQL later; rewriting will not help |
+| `too_expensive` | Scan limit exceeded, or the query ran past its time limit | The model must narrow the query |
+| `unavailable` | Backend down or throttled, or its credentials expired | Retry the same SQL later; rewriting will not help |
 
 **Why.** The brief asks for self-correction "without inflating costs". The cheapest way to waste money is to ask the model to rewrite a correct query because the database had a hiccup, or to resend the same broken query. The classification is what lets the retry logic (D-21) choose the right response.
 
@@ -246,7 +246,7 @@ A second variant used a `WITH` name defined later in the same clause. A third we
 
 ### D-14. A cheap rule-based guard runs before any model call
 
-**Decision.** User input is first checked by a small set of rules: prompt injection phrases, requests for personal data, probing for credentials, clearly unrelated requests, and over-long input. A blocked message gets a fixed, helpful reply and costs no tokens. Text is normalised first, so zero-width characters and look-alike letters do not slip through.
+**Decision.** User input is first checked by a small set of rules: prompt injection phrases, requests for personal data, probing for credentials, clearly unrelated requests, and over-long input. A blocked message gets a fixed, helpful reply and costs no tokens. Text is normalised first, so zero-width characters and the full-width or other compatibility forms of letters do not slip through. A letter borrowed from another alphabet, such as a Cyrillic "о", still does.
 
 **Why.** It answers the obvious cases instantly and for free. It is deliberately not the security boundary: a message that gets past it still cannot reach personal data or another user's products, because of D-06 to D-10. That is why the rules can be conservative and tuned to avoid blocking real questions.
 
@@ -329,6 +329,8 @@ These decisions were made while building and running the agent. Several of them 
 
 **What keeps the loop safe.** Freedom to choose tools is not freedom to do harm: every tool is implemented by code that applies the rules (D-15, D-23), and the loop has a budget (D-21).
 
+**Adding a tool.** A tool that needs only its arguments is a declaration, a method and a line in the toolbox's table of handlers, all in `agent/tools.py`; the graph does not change. `run_sql` and `delete_reports` are wired into the graph because one works within the limits of the question and the other goes through the confirmation step.
+
 **Where.** `agent/graph.py`, `agent/tools.py`. Tests: `tests/test_agent.py`.
 
 ### D-21. Self-correction has a budget, and not every failure earns a retry
@@ -339,7 +341,7 @@ These decisions were made while building and running the agent. Several of them 
 |---|---|
 | Syntax error, unknown column, personal data column | Retry, with the error message given to the model |
 | A write statement, several statements, a forbidden function | No retry |
-| Empty result | A hint to check filter values, once; then stop |
+| Empty result | A hint to check filter values, once; then the model is told to stop |
 | The database is unavailable | The same SQL is retried once by the application; the model is not asked to rewrite it |
 | The query runs out of time | The job is cancelled and the model must narrow the query; the same SQL is not run again |
 | Several plain queries in one call | The model is told to send one per call; counts as one failure |
@@ -350,7 +352,7 @@ These decisions were made while building and running the agent. Several of them 
 
 **Why errors are cheap.** A parse error is caught by the SQL gate without touching BigQuery. A semantic error is caught by BigQuery's dry-run, which is free. Only valid queries are billed.
 
-**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 76 seconds for that reason. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is a deadline. Every model call is given the time that is left as its own timeout, the retry logic stops when that time is used up, and a query gets the remaining time as its job timeout. The first version only checked the clock between steps; a review pointed out that a step in which every call hung could then run for many minutes, and the deadline closed that. The time a user takes to answer a confirmation is not counted.
+**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 70 seconds for that reason. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is a deadline. Every model call is given the time that is left as its own timeout, the retry logic stops when that time is used up, and a query gets the remaining time as its job timeout. The first version only checked the clock between steps; a review pointed out that a step in which every call hung could then run for many minutes, and the deadline closed that. The time a user takes to answer a confirmation is not counted.
 
 **Announcing the last step.** The first recording of "Why did our churn rate spike last month?" ran eight queries, one per step, reached the limit on model calls and showed the limit message. The cost was bounded, but the work was thrown away. Now, when one model call is left, every tool result carries an instruction to answer from what has been found and to say what could not be checked. Recorded again, the same question ends in an answer on its eighth call.
 
@@ -418,7 +420,7 @@ These decisions were made while building and running the agent. Several of them 
 - The instructions state the conventions: revenue excludes cancelled and returned items, with one definition per answer; "last month" and "last quarter" mean complete calendar periods; the date range is always stated; the model never adds up or averages figures itself.
 - The analyst example for quarterly reports returns every total (per month, per brand, and overall) from one SQL statement, so there is nothing left for the model to add up.
 
-**Why this way.** These are business definitions, and the Golden bucket is where the brief says such knowledge lives. Fixing them there changed the behaviour without changing code. After the change, every monetary figure in the recorded report matches the query result.
+**Why this way.** These are business definitions, and the Golden bucket is where the brief says such knowledge lives. The totals were fixed in the trio alone; the calendar-quarter rule is in the trio and in the instructions. After the change, every figure in the recorded report matches the query result.
 
 **What it does not fix.** A model can still misstate a number. The design adds a mechanical check that every figure in an answer appears in that turn's query results; it is not built.
 
@@ -442,7 +444,7 @@ These decisions were made while building and running the agent. Several of them 
 
 **What is not logged.** Result rows, only their count. The whole record is scrubbed for personal data before it is written. Time spent waiting for the user to confirm a delete is excluded from latency.
 
-**Details that matter.** A model step is named after the model that answered it. A question counts as recovered only if a query succeeded after one had failed; an apology after a failed query is not a recovery. Traces of a chat carry the conversation id, the same one that is stored with each saved report. A trace that cannot be written does not cost the answer, and a damaged line in the file costs that trace only.
+**Details that matter.** A model step is named after the model that answered it. A question counts as recovered only if a query succeeded after one had failed; an apology after a failed query is not a recovery. Query errors are counted by kind and failed model attempts by model, so the metrics say what is failing and not only how often. A model step also records a fingerprint of the tone that was in force. Any earlier answer of the same user can be opened with `/trace <id>`. Traces of a chat carry the conversation id, the same one that is stored with each saved report. A trace that cannot be written does not cost the answer, and a damaged line in the file costs that trace only.
 
 **Considered instead.** A metrics database and a tracing service. Both are right for production, where the same records become OpenTelemetry spans; neither is needed to show the approach.
 
@@ -465,9 +467,10 @@ The brief limits the prototype to four requirements, and the client asked for th
 | The admin page and the automated quality gate for tone changes | Design-only requirement; the tone is a file that is read on every question, which shows the mechanism | DESIGN 3.8 |
 | Database permissions and views | They cannot restrict a public dataset, which every Google Cloud account can read | DESIGN 3.2 |
 | Collecting feedback on answers | Design-only requirement; the CLI has no place for it | DESIGN 3.4 |
-| A tool registry and a general "needs confirmation" flag | Five tools and one destructive action did not need them | DESIGN 3.3 and 7 |
+| A general "needs confirmation" flag on tools | One destructive action did not need it. Simple tools are added through a table of handlers, without touching the graph | DESIGN 3.3 and 8 |
 | Streaming answers, a web interface | The brief asks for a CLI | DESIGN 1 |
-| Charts, email, Slack, web search | Named as future extensions | DESIGN 7 |
+| Charts, email, Slack, web search | Named as future extensions | DESIGN 8 |
+| Deployment, access control, backups, limits per user | Production concerns; a CLI on one machine has none of them | DESIGN 7 |
 
 ### D-29. BigQuery is the default data source, and has its own test group
 
@@ -492,9 +495,9 @@ The brief limits the prototype to four requirements, and the client asked for th
 
 **Situation.** A test suite can be large and still prove little: a test may assert something that stays true when the feature is broken, and whole paths may have no test at all. A review of the tests pointed at both. The confirmation prompt of the CLI, for one, was only ever tested with "y" and "n" typed in, and no test ran the chat loop itself.
 
-**Decision.** `tests/mutation_check.py` copies the repository, breaks one rule in the copy, runs the offline suite, and reports whether a test failed. It does this for 95 rules, one at a time: no brand filter, personal data columns exposed, a delete carried out whatever the user answers, the interface passing on the opposite of the answer, retries that ignore the deadline, a trace that is not scrubbed, and so on. It is run on request and takes about five minutes.
+**Decision.** `tests/mutation_check.py` copies the repository, breaks one rule in the copy, runs the offline suite, and reports whether a test failed. It does this for 101 rules, one at a time: no brand filter, personal data columns exposed, a delete carried out whatever the user answers, the interface passing on the opposite of the answer, retries that ignore the deadline, a trace that is not scrubbed, and so on. It is run on request and takes about five minutes.
 
-**Result.** Every one of the 95 breaks makes a test fail. The first runs did not: they led to the tests that run the chat loop and its confirmation prompt end to end (`tests/test_cli_chat.py`), to the tests of the Gemini adapter against a stand-in client that returns real SDK objects (`tests/test_gemini.py`), and to a number of sharper assertions.
+**Result.** Every one of the 101 breaks makes a test fail. The first runs did not: they led to the tests that run the chat loop and its confirmation prompt end to end (`tests/test_cli_chat.py`), to the tests of the Gemini adapter against a stand-in client that returns real SDK objects (`tests/test_gemini.py`), and to a number of sharper assertions.
 
 **Limits.** The list is hand-written, so it covers the rules somebody thought of. Each entry is tied to a line of source; when that line changes, the script says that the break could not be applied, and the entry has to be updated.
 
@@ -524,13 +527,13 @@ These are stated so nobody has to discover them.
 
 ## Verification against the real dataset
 
-Run on 2026-10-04 with the project `opsfleet-demo`. The first five points are now tests (`uv run pytest -m bigquery`, 79 tests).
+Run on 2026-10-04 with the author's own Google Cloud project. The first six points are now tests (`uv run pytest -m bigquery`, 79 tests).
 
 - The schema in code matches the live tables (D-02).
 - All 24 legitimate test queries, after rewriting for each of the three profiles, pass a BigQuery dry-run: 72 of 72. Dry-runs are free.
 - A bare table name sent straight to BigQuery is refused (D-10).
 - With real brands, each restricted profile sees only its own brands, including a brand name containing an apostrophe, which confirms values are escaped correctly.
 - `SELECT * FROM users` on real data returns only the eight safe columns.
-- All seven analyst examples pass the SQL gate and run on BigQuery, scanning 5 to 10 MB each.
+- All seven analyst examples pass the SQL gate, run on BigQuery and find rows, scanning 3 to 10 MB each.
 - Three conversations were recorded with real Gemini and real BigQuery ([EXAMPLE_RUN.md](EXAMPLE_RUN.md)): 14 questions, 12 answered and 2 stopped by the guard as intended, none failed; one of 21 queries failed and was corrected by the agent; a delete was declined and another confirmed.
 - Every figure in the three recorded sessions was checked against the results of its queries by running the stored SQL again. They match. The loose sentences around them are listed at the top of the example run.

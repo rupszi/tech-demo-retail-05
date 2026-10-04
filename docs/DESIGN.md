@@ -11,6 +11,7 @@ This document describes how the system works in production and how the prototype
 | How each requirement in the brief is met | [The eight requirements](#3-the-eight-requirements) |
 | Why these services, models and framework | [Technology choices](#4-technology-choices-and-why) |
 | What fails and what happens then | [Error handling and fallbacks](#5-error-handling-and-fallbacks) |
+| How it is deployed, secured and kept running | [Running it in production](#7-running-it-in-production) |
 | To run it | [README](../README.md), [example run](EXAMPLE_RUN.md) |
 | The reasoning behind individual decisions | [Decision log](DECISIONS.md) |
 
@@ -18,7 +19,7 @@ This document describes how the system works in production and how the prototype
 
 Three ideas shape the design.
 
-1. **The model proposes, code decides.** The model writes SQL and prose. Whether a query may run, which rows a user may see, whether personal data may appear, and whether a report is deleted are all decided by ordinary code that the model cannot influence. A user who talks the model into something has gained nothing.
+1. **The model proposes, code decides.** The model writes SQL and prose. Whether a query may run, which rows a user may see, whether personal data may appear, and whether a report is deleted are all decided by ordinary code that the model cannot influence. A user who talks the model into something gains no data and no action: at most an answer to a question that is off the subject.
 2. **Analyst knowledge is retrieved, not retrained.** Past analyst work (the Golden Knowledge bucket) is searched for each question and the closest matches are placed in the model's instructions. Business definitions such as "what counts as churn" therefore come from the analysts, and adding a definition is a file, not a model release.
 3. **Every answer leaves a trace.** Each question produces a structured record of every step. The same records are the metrics, the debugging tool and the raw material for improving the system.
 
@@ -223,8 +224,8 @@ Step by step:
 
 ```mermaid
 flowchart LR
-    S([start]) --> guard
-    guard -->|blocked| E([end])
+    S([Start]) --> guard
+    guard -->|blocked| E([End])
     guard -->|allowed| agent
     agent -->|asks for tools| tools
     agent -->|final answer| E
@@ -268,7 +269,7 @@ The model has five tools: `run_sql`, `save_report`, `list_reports`, `get_report`
 }
 ```
 
-The sample trios in the prototype have the first six fields. `tables` and `validated` are filled in by the indexing and validation jobs.
+The sample trios in the prototype have six of these fields: all but `tables` and `validated`, which are filled in by the indexing and validation jobs. The samples were written for this prototype and say so in their `author` field; the real bucket does not exist yet.
 
 **At question time.**
 
@@ -278,7 +279,7 @@ The sample trios in the prototype have the first six fields. `tables` and `valid
 
 This is retrieval, not training. A new definition takes effect as soon as its trio is indexed.
 
-**Trios are written without brand names or figures.** Users have different brands, and a trio's report could contain numbers that one user may see and another may not. Tagging each trio with a scope and filtering per user would split a 1,000-trio bucket into many small ones and make retrieval worse for everyone. Instead a trio carries the method: SQL that names no brand, and a report that explains the definition and the line of reasoning. The user's scope is applied afterwards, by the gate, to the SQL the model actually writes. One trio therefore serves every user, and nothing in a trio can leak between users.
+**Trios are written without brand names or figures.** Users have different brands, and a trio's report could contain numbers that one user may see and another may not. Tagging each trio with a scope and filtering per user would split a 1,000-trio bucket into many small ones and make retrieval worse for everyone. Instead a trio carries the method: SQL that names no brand, and a report that explains the definition and the line of reasoning. The user's scope is applied afterwards, by the gate, to the SQL the model actually writes. One trio therefore serves every user. That holds only as long as a trio really carries no brand and no figure, so it is checked and not assumed: a test fails on a sample trio that names a brand or quotes an amount or a percentage, and in production the indexing job runs the same check on every trio, old and new, and holds back the ones that fail.
 
 **Keeping the bucket current.**
 
@@ -295,7 +296,7 @@ flowchart LR
 ```
 
 - **Sources.** Analysts add trios directly. In addition, answers from production that users marked helpful, and answers an analyst had to correct, become candidates.
-- **Stripping brands and figures.** A candidate comes from one user's conversation, so it names their brands and their numbers. Before review, the literal values in its SQL (brand names, dates, ids) are turned into named parameters, and a model rewrites the report so that it keeps the definition and the reasoning and drops the figures. The analyst who approves the trio checks that nothing specific is left.
+- **Stripping brands and figures.** A candidate comes from one user's conversation, so it names their brands and their numbers. Before review, the literal values in its SQL are removed or made relative, as in the sample trios: no brand filter, because the gate adds the user's own, and dates relative to the current date. A model rewrites the report so that it keeps the definition and the reasoning and drops the figures. The analyst who approves the trio checks that nothing specific is left.
 - **Review.** Nothing produced by the assistant enters the bucket without an analyst approving it. Otherwise the system would learn from its own mistakes. The client left this decision to us.
 - **Versioning.** The bucket has object versioning. Each trio records its author, its date and the tables it uses.
 - **Validation.** A nightly job dry-runs every stored SQL statement against the live schema. A trio that no longer runs is flagged and taken out of retrieval until fixed. Dry-runs are free.
@@ -315,7 +316,7 @@ flowchart LR
 
 **In the prototype.** As agreed with the client, the bucket is the folder `golden_bucket/` with seven sample trios, and retrieval is by shared words, which needs no extra service. The interface (`find_similar`) is the one the embedding search would implement. A test runs every stored SQL statement through the SQL gate and the database, and the BigQuery test group runs them on the real dataset. This is the nightly validation in miniature.
 
-**What it changed in practice.** Recording the example run exposed two errors in the model's reports: a "last quarter" computed as the last 90 days, and totals the model added up itself, one of them wrongly. Both were fixed by adding one trio for quarterly reports that states the calendar-quarter rule and returns every total from SQL. In the run recorded afterwards, every figure in the report matches the query result. No code changed.
+**What it changed in practice.** Recording the example run exposed two errors in the model's reports: a "last quarter" computed as the last 90 days, and totals the model added up itself, one of them wrongly. The calendar-quarter rule went into a trio for quarterly reports and into the instructions; the totals were fixed in the trio alone, which now returns every total from SQL. In the run recorded afterwards, every figure in the report matches the query result.
 
 ### 3.2 Safety and PII
 
@@ -335,7 +336,9 @@ The brief has three requirements here: only analysis questions, no personal data
 
 The three layers in bold are the guarantees. The others reduce cost and noise, or back the guarantees up.
 
-**Only analysis questions.** Obvious cases are stopped by rules before any model call. For the rest, the model is instructed to decline in one sentence without running a query. In testing, "What is the capital of France?" got exactly that: one model call, no query. Even a model that ignored the instruction could only run read-only queries on the user's own data.
+**Only analysis questions.** Obvious cases are stopped by rules before any model call. For the rest, the model is instructed to decline in one sentence without running a query; the example run shows "What is the capital of France?" getting exactly that. This part rests on the model following an instruction, and the rules can be passed by rephrasing, so it is the weakest of the three requirements: a determined user can get an off-topic answer. What they cannot get is data: even a model that ignored every instruction could only run read-only queries on the user's own brands, which the example run also shows.
+
+**Only the four tables of the brief.** The dataset has more, such as `inventory_items` and `events`. They are out of reach, so questions about stock levels cannot be answered. Adding a table is an entry in the policy and a rule for limiting it to the user's brands.
 
 **Malicious users.** The SQL the model writes is treated as untrusted input. It is parsed into a syntax tree and must pass every check; the default is to reject.
 
@@ -415,7 +418,7 @@ What makes it strict:
 
 What keeps it from breaking the experience:
 
-- **One question, once.** The user sees the exact titles and answers yes or no. Anything else cancels.
+- **One question, once.** The user sees the exact titles and answers yes or no. In the CLI only `y` deletes. `n`, pressing Enter, a closed input or Ctrl-C cancel, and any other reply is asked again.
 - **A fast, exact outcome.** It arrives in under a second, with no model call.
 - **A delete asked for together with a question.** The query runs, the user is asked once, and the answer shows the outcome of the delete first, written by the application, followed by the model's answer to the rest. If the model fails at that point the outcome is still shown. A second delete request in the same question is refused without asking the user again.
 - **No confirmation when nothing matches.** The assistant simply says so.
@@ -483,7 +486,7 @@ The brief asks that errors and empty results are detected and corrected before g
 | A rule was broken by an honest mistake (for example a personal data column) | SQL gate | Same, with a message that says what to do instead |
 | A rule was broken in a way a well-behaved model would not (a write, several statements) | SQL gate | No retry. The model is told to stop and explain |
 | The query would scan too much | Dry-run estimate, and BigQuery's byte cap | The model must narrow it; counts as a failure |
-| No rows | Result is empty | First time: a hint to check filter values. Second time: stop and say no data matched |
+| No rows | Result is empty | First time: a hint to check filter values. Second time: the model is told to stop and to say that no data matched |
 | BigQuery unavailable | Error class | The same SQL is retried once; the model is not asked to rewrite a correct query |
 | More rows than the limit | Result reached our row limit (a smaller LIMIT that the query chose itself is a complete answer) | The result is marked incomplete and the model is told to aggregate |
 | The query runs out of time | Our own timeout | The job is cancelled and the model is told to narrow the query; the same SQL is not run again |
@@ -496,7 +499,7 @@ After the retry limit, no further query runs for that question and the model is 
 - Broken SQL is caught before it is billed.
 - A question may use at most 8 model calls, 60,000 tokens and 120 seconds. When one model call is left, the tool results say so and tell the model to answer from what it has, so a question that explores for too long ends in an answer. Past any of the limits, the assistant stops and asks the user to narrow the question. The time limit is a deadline, as described below.
 - At most 500 rows are fetched and 50 are shown to the model, with a note when rows were left out.
-- Blocked messages and confirmed deletes use no model calls.
+- A blocked message uses no model call, and the outcome of a confirmed delete needs no further one.
 - Old result tables are not resent with every turn.
 - BigQuery caps the bytes a query may bill.
 
@@ -573,7 +576,7 @@ These come from the traces. They are complemented by moderated sessions with a f
 | Step | Recorded |
 |---|---|
 | Guard | Allowed or blocked, and the category |
-| Model call | Model that answered, tokens in and out, tools requested, and which analyst examples were in the instructions |
+| Model call | Model that answered, tokens in and out, tools requested, which analyst examples were in the instructions, and a fingerprint of the tone that was in force |
 | Model retry or wait | Which model failed, the error, how long was waited |
 | Query | The SQL the model wrote, the SQL that ran, rows, bytes scanned, error code and message, whether it was cut off, redactions |
 | Report saved | Report id |
@@ -592,8 +595,8 @@ A model step is named after the model that answered it, so a fallback to another
 | Share answered, blocked, gave up, failed | The headline: is it working? |
 | Latency, median and 95th percentile | Experience. Waiting for a confirmation is excluded |
 | Tokens and model calls per question | Cost |
-| Failed model attempts (each is followed by a retry, a fallback or an error) | Provider health |
-| Query error rate, and the share of questions that recovered: a later query succeeded after one had failed | Whether the model writes valid SQL, and whether self-correction works |
+| Failed model attempts, in total and by model (each is followed by a retry, a fallback or an error) | Provider health, and which model is the problem |
+| Query error rate, the errors by kind, and the share of questions that recovered: a later query succeeded after one had failed | Whether the model writes valid SQL, what goes wrong when it does not, and whether self-correction works |
 | Empty-result rate | Misunderstood filters or genuinely missing data |
 | Guard blocks by category | Abuse attempts, and false alarms |
 | Personal data redactions | Should be zero. Anything else means an upstream layer leaked |
@@ -603,9 +606,9 @@ In production one more is added: cost per question in dollars, computed from the
 
 **Alerts in production:** failed share above a threshold; gave-up share rising; 95th percentile latency; any redaction; a spike in guard blocks; cost per question approaching the cap; every model in the list resting.
 
-**Debugging one answer.** The reviewer takes the trace id, opens the trace, and reads the steps in order: what the model asked for, the exact SQL that ran, what came back, what the model did next. In the prototype this is `/trace` for the last question, or the JSON line in `logs/traces.jsonl`. The example run shows it. Because the executed SQL is stored, the query can be re-run to see the data the model saw. Because the conversation id is stored, all turns of a conversation can be read in order; it is the same id that is stored with each saved report.
+**Debugging one answer.** The reviewer takes the trace id, opens the trace, and reads the steps in order: what the model asked for, the exact SQL that ran, what came back, what the model did next. In the prototype this is `/trace` for the last question, `/trace <id>` for any earlier answer of the same user, or the JSON line in `logs/traces.jsonl`. The example run shows it. Because the executed SQL is stored, the query can be re-run to see the data the model saw, as long as the data has not changed since (the public dataset is regenerated daily). Because the conversation id is stored, all turns of a conversation can be read in order; it is the same id that is stored with each saved report.
 
-**In production** each trace also carries the tone version in force, which is what the automatic rollback in 3.8 compares. The same records are OpenTelemetry spans sent to Cloud Trace, and structured logs sent to Cloud Logging with a sink to BigQuery, so the metrics above are SQL queries and the dashboards and alerts are built on them. A tool specialised in model traces can be added on the same data, but is not required.
+**In production** the fingerprint of the tone becomes the tone version, which is what the automatic rollback in 3.8 compares. The prototype logs no result rows and no intermediate model text; in production the scrubbed inputs and outputs of each step are kept with the trace in a store with restricted access and a retention period, because that is what a deep dive into a wrong answer needs. The same records are OpenTelemetry spans sent to Cloud Trace, and structured logs sent to Cloud Logging with a sink to BigQuery, so the metrics above are SQL queries and the dashboards and alerts are built on them. A tool specialised in model traces can be added on the same data, but is not required.
 
 ### 3.8 Agility: changing the tone without a deployment
 
@@ -674,11 +677,11 @@ Around the gate:
 | Invalid SQL | SQL gate or dry-run | Error returned to the model; up to 2 corrections | The answer, slightly later |
 | Query limit reached | Counter per question | No further queries; model explains | A plain statement of what could not be done |
 | Forbidden SQL | SQL gate | Rejected, no retry | A short explanation that this is not allowed |
-| Empty result | Row count | Hint once, then stop | "No data matched", with the filter used |
+| Empty result | Row count | A hint once; then the model is told to stop | "No data matched", with the filter used |
 | Result too large | Row limit | Marked incomplete; model aggregates | An aggregated answer |
 | Query runs out of time | Our own timeout | The job is cancelled; model narrows the query | The answer for a narrower scope |
 | Query too expensive | Dry-run and byte cap | Refused; model narrows it | The answer for a narrower scope |
-| BigQuery unavailable | Error class | One immediate retry, then stop | "The data warehouse is temporarily unavailable" |
+| BigQuery unavailable, or its credentials expired | Error class | One retry a second later, then stop | "The data warehouse is temporarily unavailable" |
 | BigQuery not set up at start | A free dry-run when the CLI starts | Stops before the chat begins | What is missing, and the offline option |
 | Model timeout or server error | Error class | Backoff and retry, then next model | "The model is busy, retrying" while it works |
 | Model rate limit | Error with a wait time | Wait if short, otherwise rest it and use the next model | Usually nothing |
@@ -690,7 +693,17 @@ Around the gate:
 | The trace cannot be written | Error on writing the file | Logged as a warning | Nothing: the answer is shown as usual |
 | Any other exception | Caught at the session boundary | Logged with cause; turn ends | A short apology; the conversation continues |
 | Personal data in output | Scrubber | Masked and counted | The masked text |
-| Confirmation not answered | A new message arrives | Treated as "no" | Nothing is deleted |
+| Confirmation not answered | A new message arrives | Treated as "no"; the turn it belonged to ends | Nothing is deleted |
+
+The rows above are built and tested in the prototype. In production the other services can fail too:
+
+| Failure | What the system does | What the user sees |
+|---|---|---|
+| Cloud SQL unavailable | Questions are still answered from BigQuery. Saving, listing and deleting reports are refused, and nothing is confirmed that cannot be recorded. A conversation that was cut off resumes when the database is back | "Saved reports are unavailable for the moment" |
+| Model Armor or Sensitive Data Protection unavailable | The local rules take over: the input guard and the pattern scrubber. This is safe because the guarantees are the SQL gate and the column allow-list, not these services. The trace is marked and an alert fires | Nothing |
+| The identity provider's keys cannot be fetched | Tokens are checked against the cached keys. A token signed with a key that is not in the cache is refused | A request to sign in again |
+| Vertex AI unavailable in the region | The model list can hold the same model in a second region as a further entry, so the fallback of 3.5 covers it | Usually nothing |
+| The indexing job fails | The previous version of the index keeps serving; the job is retried and alerts | Nothing |
 
 ---
 
@@ -710,9 +723,33 @@ What is sent to the model: the instructions, the conversation text, and query re
 
 ---
 
-## 7. Extending it
+## 7. Running it in production
 
-**A new capability** is a tool. In the prototype that is three small pieces: a declaration (name, description, parameters) in `TOOL_SPECS`, a method on `Toolbox`, and a branch in the `tools` step of the graph that calls it. With more than a handful of tools the branch becomes a registry that maps a name to its function, and the declaration gains a flag that says whether the tool needs confirmation (3.3). Neither exists yet: five tools and one destructive action did not need them.
+| Concern | How |
+|---|---|
+| Environments and release | Development, staging and production are separate projects built from the same Terraform. A merge builds one container image. The offline tests and the BigQuery test group run in CI; the evaluation suite of 3.6 runs against staging. Cloud Run takes the new revision at a small share of traffic and promotes it if the live metrics hold. Rolling back is pointing traffic at the previous revision |
+| Access | One service account per component, each with the least it needs. The agent service may run BigQuery jobs and read the views, call Vertex AI, connect to Cloud SQL and read its secrets. The jobs' account may read the bucket and write the index. No user credential reaches Google Cloud. Cloud SQL has no public address and is reached over a private connection. The API sits behind an HTTPS load balancer |
+| Limits per user | The API enforces a request rate and a daily spend per subject, taken from the cost per question in the traces, so one user or a leaked token cannot run up cost |
+| Availability and capacity | Targets, to be agreed with the client: 99.5% of questions answered or declined cleanly, and 30 seconds at the 95th percentile for ordinary questions. A few hundred users means tens of conversations at once at most. Cloud Run scales on concurrency, with one instance kept warm in office hours. The real ceiling is model quota, so capacity is bought for the peak |
+| Backup and recovery | Cloud SQL runs with a standby and point-in-time recovery, and a restore is rehearsed. The aim is to be back within an hour and to lose at most five minutes. The Golden bucket has object versioning, and the vector index can be rebuilt from it at any time. The sales data in BigQuery is not ours to back up |
+| Retention | Traces: 90 days in Cloud Logging and a year in BigQuery. Conversation state: 30 days after the last message. Saved reports: until their owner deletes them. The audit log: as long as the company's policy requires |
+| Cost | Model usage is the main variable cost: about 9,000 tokens per question in the recorded sessions, most of it input, which the price table of 3.5 turns into dollars. BigQuery is small next to it, at about 10 MB scanned per query. The fixed costs are one small Cloud SQL instance with its standby and one warm Cloud Run instance |
+
+---
+
+## 8. Extending it
+
+**A new capability** is a tool, and adding one is three small pieces in one file, `agent/tools.py`: a declaration (name, description, parameters) in `TOOL_SPECS`, a method on `Toolbox`, and a line in its table of handlers. The graph does not change; a test adds a tool this way and calls it. Two tools are wired into the graph itself because they need more than their arguments: `run_sql` works within the limits of the question, and `delete_reports` goes through the confirmation step. A second tool that needs confirmation would be the moment to turn that into a flag on the declaration (3.3); with one destructive action it was not needed.
+
+As an example, a chart tool would be:
+
+```python
+ToolSpec("make_chart", "Describe a chart of a query result.", _schema({...}))    # the declaration
+
+def make_chart(self, kind: str, sql: str) -> dict: ...                           # the method
+
+"make_chart": lambda args: self.make_chart(args.get("kind"), args.get("sql")),   # the handler
+```
 
 - *Charts.* A tool returns a chart specification from a query result. The interface renders it. No new safety surface, because the data came through the gateway.
 - *Email and Slack.* The client may add Slack later as a place to send results. Both are outward-facing actions, so they would be marked as needing confirmation and reuse the pause in 3.3. Sending is handed to a background worker.
@@ -724,7 +761,7 @@ What is sent to the model: the instructions, the conversation text, and query re
 
 ---
 
-## 8. Limits of the prototype
+## 9. Limits of the prototype
 
 - The token is not verified, because there is no front end to issue one. `--user` picks a sample token payload.
 - Brand scope and the personal data rule are enforced by the application only. Production adds what BigQuery can enforce on the company's own data (3.2); on the public dataset used here nothing more is possible.
@@ -736,8 +773,8 @@ What is sent to the model: the instructions, the conversation text, and query re
 - Finding reports by text ignores case for unaccented letters only.
 - Conversation state is in memory and ends with the process. Reports and traces persist.
 - Golden bucket retrieval is by shared words. It works for seven trios and would not for 1,000.
-- The cap in dollars is not computed. Limits are set in model calls, tokens, seconds and bytes.
-- The pause for confirmation is written for deleting reports. A general flag on tools is designed, not built (3.3 and 7).
+- The cap in dollars is not computed. Limits are set in model calls, tokens, seconds and bytes. The number of queries in a question is not counted on its own (3.5).
+- The pause for confirmation is written for deleting reports. A general flag on tools is designed, not built (3.3 and 8).
 - No feedback on answers is collected (3.4).
 - On the free tier the larger models allow 20 requests a day. The assistant keeps working on the lite model, with somewhat weaker answers.
 

@@ -601,6 +601,43 @@ BREAKS = [
         "    except ValueError as e:  # for example MAX_ROWS=five",
         "    except ZeroDivisionError as e:",
     ),
+    # ---- lookups, metrics and the extension point
+    (
+        "another user's trace can be opened by its id",
+        "src/retail_agent/cli/app.py",
+        '        if found and found[-1].get("user") == owner:',
+        "        if found:",
+    ),
+    (
+        "the line under an answer does not name the model",
+        "src/retail_agent/cli/app.py",
+        '    models = f" ({escape(\', \'.join(answered))})" if answered else ""',
+        '    models = ""',
+    ),
+    (
+        "a tool in the table of handlers is not called",
+        "src/retail_agent/agent/graph.py",
+        "                elif name in toolbox.handlers:  # a tool that needs only its arguments",
+        "                elif False:",
+    ),
+    (
+        "the trace does not say which tone was in force",
+        "src/retail_agent/agent/graph.py",
+        '            "tone": hashlib.sha1(persona.encode()).hexdigest()[:8],',
+        '            "tone": "same",',
+    ),
+    (
+        "query errors are not broken down by kind",
+        "src/retail_agent/observability/tracing.py",
+        '        "sql_errors_by_code": _count(s["error"] for s in steps("sql") if s.get("error")),',
+        '        "sql_errors_by_code": {},',
+    ),
+    (
+        "expired credentials are treated as the model's mistake",
+        "src/retail_agent/data/bigquery_backend.py",
+        "    auth_exc.GoogleAuthError,  # expired or missing credentials: rewriting the SQL cannot help\n",
+        "",
+    ),
 ]
 
 

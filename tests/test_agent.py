@@ -81,6 +81,22 @@ def test_tone_file_is_read_on_every_question(chat, tmp_path):
     session.ask("Show revenue again")
     assert "Tone: formal." in session.model.requests[0]["system"]
     assert "Tone: playful." in session.model.requests[1]["system"]
+    first, second = ([s for s in t["steps"] if s["kind"] == "llm"][0] for t in traces(session))
+    assert first["tone"] != second["tone"]  # the trace says which tone was in force
+
+
+def traces(session):
+    from retail_agent.observability import read_traces
+
+    return read_traces(session.tracer._path.parent)
+
+
+def test_a_new_tool_needs_no_change_to_the_graph(chat):
+    """A declaration, a method and one line in the table of handlers: that is a new tool."""
+    session = chat(says("", call("top_category", limit=1)), says("Jeans sell best."))
+    session.toolbox.handlers["top_category"] = lambda args: {"category": "Jeans", "asked": args}
+    assert session.ask("What sells best?").answer == "Jeans sell best."
+    assert tool_results(session)[0] == {"category": "Jeans", "asked": {"limit": 1}}
 
 
 # ---- conversation ----------------------------------------------------------------------------
