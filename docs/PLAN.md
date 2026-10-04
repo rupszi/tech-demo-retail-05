@@ -18,14 +18,14 @@ Assessment focus: system design, the technical explanation, and an elegant proto
 
 | # | Requirement | Prototype | Design doc |
 |---|---|:-:|:-:|
-| 1 | Hybrid intelligence (Golden Bucket) | small mock (bonus) | yes |
+| 1 | Hybrid intelligence (Golden Bucket) | sample trios in a local folder (confirmed by the client) | yes |
 | 2 | Safety and PII masking, per-user product scope | **yes** | yes |
 | 3 | High-stakes oversight (destructive ops) | **yes** | yes |
 | 4 | Continuous improvement (user and system loops) | no | yes |
 | 5 | Resilience and graceful error handling | **yes** | yes |
-| 6 | Quality assurance | unit tests and a small scenario set | yes |
+| 6 | Quality assurance | 753 automated tests | yes |
 | 7 | Observability | **yes** | yes |
-| 8 | Agility (persona management) | no | yes |
+| 8 | Agility (persona management) | tone file read on every question | yes |
 
 ### Points that need deliberate handling
 
@@ -64,29 +64,33 @@ The questions sent to the client, with the full assumption for each, are in [QUE
 
 ## 4. Approach
 
-- **Framework**: LangGraph, because its interrupt and checkpoint model fits the confirmation flow and gives step-level tracing. **Model**: Gemini through the `google-genai` SDK, model names configurable by environment variable (a faster model for routing and SQL, a stronger one for report writing, with fallback between them).
-- **Request pipeline**: input guard, intent router, then one of schema Q&A, analysis, report, or report management. Analysis flows through golden-example retrieval, SQL generation, validation, dry-run, execution, analysis, PII scrub and response.
-- **Data backends**: one `DataBackend` interface with a DuckDB implementation (mock data mirroring the four tables) and a BigQuery implementation. Everything is developed and tested offline first; BigQuery is the final validation step. Tables resolve only by fully qualified name on both.
-- **Safety**: SQL parsed with `sqlglot`; single `SELECT` only, table and column allowlists, forced `LIMIT`, per-user scoping applied to the parsed query, output scrubber as a second layer. The agent reaches data only through a `QueryGateway` that applies all of it.
-- **Delete flow**: resolve candidates (own reports only), snapshot exact IDs into a pending action, confirm in the CLI outside the model, soft delete with undo, audit log.
-- **Resilience**: retries with backoff and jitter, circuit breaker, model fallback, capped self-correction, per-turn token and tool-call budget, friendly error messages.
-- **Observability**: structured trace per turn (JSONL) plus a metrics store, exposed through `/trace` and `/stats`.
-- **Extensibility**: a tool registry so new capabilities (charts, email, web search) and data sources are added as single modules.
+This section describes what was built. Where it differs from the first plan, section 7 says why.
 
-### Planned layout
+- **Framework**: LangGraph, because its interrupt and checkpoint model fits the confirmation flow and gives step-level tracing. **Model**: Gemini through the `google-genai` SDK, configured as an ordered list of models; the first one that is available answers.
+- **Flow**: `guard -> agent <-> tools`, plus a `confirm_delete` step. One agent loop with five tools handles questions about the data's structure, single and multi-step analysis, reports and report management.
+- **Data backends**: one `DataBackend` interface with a DuckDB implementation (mock data mirroring the four tables) and a BigQuery implementation. Everything is developed and tested offline; the same code runs against BigQuery. Tables resolve only by fully qualified name on both.
+- **Safety**: SQL parsed with `sqlglot`; a single query only, table and column allow-lists, a forced `LIMIT`, per-user scoping applied to the parsed query, and an output scrubber as a second layer. The agent reaches data only through a `QueryGateway` that applies all of it.
+- **Delete flow**: find the user's own matching reports, store their ids in the conversation state, pause for the user's answer, soft-delete exactly those ids, report the outcome from code. Undo and an audit log.
+- **Resilience**: bounded self-correction with errors classified by whether a retry can help; retries with backoff and jitter; a rate-limited model is rested and the next one answers; a budget per question; nothing crashes the interface.
+- **Observability**: one structured trace per question (JSONL), with the metrics computed from the same file; `/trace` and `/stats`.
+- **Golden bucket**: a local folder of analyst examples, retrieved by similarity to the question and added to the model's instructions.
+- **Extensibility**: a new capability is a tool; a new data source is a `DataBackend` with a policy; a new channel calls `ChatSession`.
+
+### Layout
 
 ```
 src/retail_agent/
-  config.py          settings from environment
-  data/              DataBackend interface, DuckDB + BigQuery, mock data generator
-  safety/            policy, profiles, sql validator, scoping, gateway, pii scrubber, input guard
-  llm/               gemini client, fake llm, retry/breaker/fallback, budget
-  agent/             graph, nodes, prompts
-  reports/           saved reports store, pending actions, audit log
-  observability/     tracing, metrics
-  cli/               chat loop and rendering
-  golden/            example trios and retrieval
-config/              mock user profiles, one file per data backend
+  config.py          settings from the environment
+  agent/             conversation graph, tools, instructions, session
+  safety/            policy, profiles, SQL gate, scoping, gateway, PII scrubber, input guard
+  data/              DataBackend interface, DuckDB and BigQuery, schema, mock data
+  llm/               model interface, Gemini adapter, retry and fallback
+  reports/           saved reports with soft delete, undo and audit log
+  observability/     traces and metrics
+  golden/            retrieval of analyst examples
+  cli/               chat interface
+config/              user profiles (one file per data backend) and the tone file
+golden_bucket/       sample analyst examples
 tests/
 docs/
 ```
@@ -104,80 +108,94 @@ A phase is complete only when every gate in it is met. Gates are checked, not as
 
 ### Phase 0: Scaffold
 Project metadata, dependencies, `.env.example`, folder layout, test and lint tooling.
-- [ ] `uv sync` succeeds from a clean checkout
-- [ ] `uv run pytest` runs (a smoke test passes)
-- [ ] Lint and format check pass
-- [ ] `.env` is ignored; `.env.example` lists every variable
-- [ ] Folder layout matches section 4
+- [x] `uv sync` succeeds from a clean checkout
+- [x] `uv run pytest` runs (a smoke test passes)
+- [x] Lint and format check pass
+- [x] `.env` is ignored; `.env.example` lists every variable
+- [x] Folder layout matches section 4
 
 ### Phase 1: Mock data and data layer
-- [ ] Generator produces deterministic DuckDB data for `users`, `products`, `orders`, `order_items`
-- [ ] Column names and types match the real dataset (including the PII columns)
-- [ ] `DataBackend` interface implemented by DuckDB and BigQuery
-- [ ] One shared contract test suite passes against DuckDB
-- [ ] BigQuery backend supports dry-run and a bytes-billed cap, covered by tests with a stubbed client
+- [x] Generator produces deterministic DuckDB data for `users`, `products`, `orders`, `order_items`
+- [x] Column names and types match the real dataset (including the PII columns)
+- [x] `DataBackend` interface implemented by DuckDB and BigQuery
+- [x] One shared contract test suite passes against DuckDB
+- [x] BigQuery backend supports dry-run and a bytes-billed cap, covered by tests with a stubbed client
 
 ### Phase 2: Safety layer
-- [ ] Validator rejects DML, DDL, multi-statement input, comment tricks, unlisted tables and metadata tables
-- [ ] PII columns cannot be reached: named references are rejected (alias, subquery, CTE), and `SELECT *` or whole-row expressions only ever see the safe columns
-- [ ] `LIMIT` is forced when absent or too large
-- [ ] Per-user scoping verified on mock data: user A never receives user B's product rows
-- [ ] Output scrubber masks emails, phone numbers and street addresses in free text
-- [ ] Rule-based input guard blocks prompt injection, requests for personal data, secret probing and obviously unrelated requests, without blocking realistic questions (semantic off-topic detection is a phase 4 gate)
-- [ ] Adversarial test suite: 100% blocked, with no false rejections on the valid-query suite
+- [x] Validator rejects DML, DDL, multi-statement input, comment tricks, unlisted tables and metadata tables
+- [x] PII columns cannot be reached: named references are rejected (alias, subquery, CTE), and `SELECT *` or whole-row expressions only ever see the safe columns
+- [x] `LIMIT` is forced when absent or too large
+- [x] Per-user scoping verified on mock data: user A never receives user B's product rows
+- [x] Output scrubber masks emails, phone numbers and street addresses in free text
+- [x] Rule-based input guard blocks prompt injection, requests for personal data, secret probing and obviously unrelated requests, without blocking realistic questions (semantic off-topic detection is a phase 4 gate)
+- [x] Adversarial test suite: 100% blocked, with no false rejections on the valid-query suite
 
 ### Phase 3: LLM layer and resilience
-- [ ] Gemini client and a fake LLM share one interface
-- [ ] Retry with backoff and jitter, circuit breaker and model fallback each covered by tests
-- [ ] Per-turn budget stops runaway loops with a user-friendly message
-- [ ] Tests make no network calls
+- [x] Gemini client and a fake LLM share one interface
+- [x] Retry with backoff and jitter, fallback through an ordered list of models, and resting a rate-limited model, each covered by tests
+- [x] Per-turn budget stops runaway loops with a user-friendly message
+- [x] Tests make no network calls
 
 ### Phase 4: Agent graph
-- [ ] Scripted scenarios pass with the fake LLM: schema question, top customers, monthly revenue, product comparison, multi-step question, report with action items
-- [ ] Syntax error triggers at most N self-correction attempts, then a graceful message
-- [ ] Empty result is diagnosed and explained rather than returned silently
-- [ ] Each scenario also run once against real Gemini and the outcome recorded
-- [ ] Golden-example retrieval feeds the SQL step (mock bucket)
-- [ ] The router declines off-topic requests that the rule-based guard cannot recognise, without running a query
-- [ ] Final answers and saved reports pass through the PII scrubber
+- [x] Scenarios pass with a scripted model: a question about the data's structure, a single-query answer, a multi-step question, a saved report
+- [x] A failing query is corrected at most twice, then the agent stops and explains
+- [x] Empty result is diagnosed and explained rather than returned silently
+- [x] Every capability in the brief run against real Gemini and BigQuery, and recorded in `docs/EXAMPLE_RUN.md`
+- [x] Analyst examples similar to the question are added to the model's instructions (local folder)
+- [x] The agent declines unrelated requests that the rule-based guard cannot recognise, without running a query (checked with real Gemini)
+- [x] Final answers and saved reports pass through the PII scrubber
 
 ### Phase 5: Reports and delete flow
-- [ ] Reports can be saved, listed, searched and opened
-- [ ] "Delete reports mentioning X" and "delete all reports from this conversation" both go through confirmation
-- [ ] Nothing is deleted before explicit confirmation; declining changes nothing
-- [ ] The confirmed ID set is exactly the previewed ID set
-- [ ] A user cannot delete another user's reports
-- [ ] Confirmation is not reachable by any tool the model can call
-- [ ] Undo restores soft-deleted reports; every step lands in the audit log
+- [x] Reports can be saved, listed, searched and opened
+- [x] "Delete reports mentioning X" and "delete all reports from this conversation" both go through confirmation
+- [x] Nothing is deleted before explicit confirmation; declining changes nothing
+- [x] The confirmed ID set is exactly the previewed ID set
+- [x] A user cannot delete another user's reports
+- [x] Confirmation is not reachable by any tool the model can call
+- [x] Undo restores soft-deleted reports; every step lands in the audit log
 
 ### Phase 6: Observability
-- [ ] Every turn produces a trace with trace ID, per-step latency, tokens, SQL, retries and guard hits
-- [ ] `/trace` shows the last turn; `/stats` shows aggregate metrics
-- [ ] Injected failures (bad SQL, LLM timeout) are visible in the trace with their cause
-- [ ] Metrics defined: success rate, SQL error and retry rate, empty-result rate, latency p50/p95, tokens and cost per turn, guard blocks, confirmation outcomes
+- [x] Every turn produces a trace with trace ID, per-step latency, tokens, SQL, retries and guard hits
+- [x] `/trace` shows the last turn; `/stats` shows aggregate metrics
+- [x] Injected failures (bad SQL, LLM timeout) are visible in the trace with their cause
+- [x] Metrics defined: share answered, blocked, gave up and failed; query error rate and recovery rate; empty-result rate; latency p50/p95; tokens and model calls per question; model retries; guard blocks; redactions; confirmation outcomes
 
 ### Phase 7: CLI polish and example run
-- [ ] Chat loop with user switching, readable tables and report rendering
-- [ ] No stack trace can reach the user
-- [ ] Example session transcript committed
-- [ ] README setup instructions work from a fresh clone on a clean directory
+- [x] Chat loop with a `--user` option, readable tables and report rendering
+- [x] No stack trace can reach the user
+- [x] Example session transcript committed
+- [x] README setup instructions work from a fresh clone on a clean directory
 
 ### Phase 8: Design document
-- [ ] Mermaid architecture diagram renders
-- [ ] Every service, model and framework choice has a stated reason
-- [ ] Data flow, error handling and fallbacks documented
-- [ ] A section for each of the 8 requirements, with the prototype/design split stated
-- [ ] Assumptions and client questions listed
-- [ ] Framework rationale and honest experience level included
+- [x] Mermaid architecture diagram renders
+- [x] Every service, model and framework choice has a stated reason
+- [x] Data flow, error handling and fallbacks documented
+- [x] A section for each of the 8 requirements, with the prototype/design split stated
+- [x] Assumptions and client questions listed
+- [x] Framework rationale and honest experience level included
 
 ### Phase 9: GCP validation
-- [ ] Same scenarios pass against real BigQuery and real Gemini
-- [ ] Query cost stays inside the free tier
-- [ ] Differences between mock and real data are fixed or documented (schema, gate output and scoping were already verified on real data on 2026-10-04; see DECISIONS.md)
-- [ ] Final README verified from a fresh clone
-- [ ] Final tracker review: every deliverable ticked
+- [x] Same scenarios pass against real BigQuery and real Gemini
+- [x] Query cost stays inside the free tier
+- [x] Differences between mock and real data are fixed or documented (separate user profiles for real brands; see DECISIONS.md)
+- [x] README verified from a fresh clone, with `uv` and with plain `pip`
+- [x] Final tracker review: every deliverable ticked
 
-## 7. Definition of done
+## 7. Changes to the plan during delivery
+
+The plan was written before any code. These are the places where delivery departed from it, and why. Each is explained in [DECISIONS.md](DECISIONS.md).
+
+| Planned | Delivered | Why |
+|---|---|---|
+| A router step, then separate steps for structure questions, analysis and reports | One agent loop with tools | Multi-step questions need a variable number of queries; a router would add a model call to every question (D-20) |
+| A fast model for SQL and a stronger one for reports | An ordered list of models | On the free tier the larger models allow 20 requests a day; a list keeps the assistant working (D-22) |
+| A circuit breaker | A rate-limited model is rested for as long as the provider asks | Same purpose, with the timing given by the provider; a shared breaker has nothing to share in a single-user CLI (D-22) |
+| The model writes the reply after a confirmed delete | The application writes it | A real run showed the reply could be lost to a rate limit after the delete had happened (D-23) |
+| A metrics store next to the traces | Metrics computed from the trace file | One source, no disagreement between the two (D-27) |
+| BigQuery used only in the last phase | Used from phase 2 onwards | Access was available early; free dry-runs caught problems sooner |
+| Golden bucket as an optional extra | Seven sample trios, used on every question | The client confirmed the folder approach; the trios turned out to be the right place to fix real report errors (D-25, D-26) |
+
+## 8. Definition of done
 
 - All phase gates are met and recorded in the tracker.
 - Every requirement in the brief has either working code and tests, or a design section, as stated in section 1.

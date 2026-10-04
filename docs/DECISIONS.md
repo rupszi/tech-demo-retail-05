@@ -2,9 +2,9 @@
 
 This document records the decisions made while building the project, in the order they were made, with the reasoning behind each one. It is written for a reader who was not in the room: every entry says what the situation was, what was decided, what else was considered, what it costs, and how it is checked.
 
-It is updated in the same commit as the work it describes. If a decision looks wrong or a reason is unclear, please ask or challenge it: each entry names the code and tests that implement it, so a question can be answered by pointing at something concrete. Questions that only the client can answer are tracked in [TRACKER.md](TRACKER.md#open-questions-for-the-client).
+It is updated in the same commit as the work it describes. If a decision looks wrong or a reason is unclear, please ask or challenge it: each entry names the code and tests that implement it, so a question can be answered by pointing at something concrete. Questions that only the client can answer are in [QUESTIONS.md](QUESTIONS.md), with the assumption used for each.
 
-Related documents: [PLAN.md](PLAN.md) (scope, phases, exit gates), [TRACKER.md](TRACKER.md) (progress).
+Related documents: [DESIGN.md](DESIGN.md) (how the system works), [PLAN.md](PLAN.md) (scope, phases, exit gates), [TRACKER.md](TRACKER.md) (progress).
 
 ## Index
 

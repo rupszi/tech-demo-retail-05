@@ -4,13 +4,15 @@ The brief invites questions. This is the full list, and for each one the assumpt
 
 Questions 1 to 6 affect the prototype. Questions 7 to 12 affect only the design document.
 
+**Sent to the client on 2026-10-04.** Question 5 was answered the same day. Questions 1 to 3 were passed to a colleague on the client side to confirm or adjust; until they answer, the assumptions stand.
+
 | # | Topic | Affects | Status |
 |---|---|---|---|
-| 1 | Which products a user may analyse | Prototype | Awaiting answer |
-| 2 | What counts as personal data | Prototype | Awaiting answer |
-| 3 | Saved Reports library | Prototype | Awaiting answer |
+| 1 | Which products a user may analyse | Prototype | With the client for confirmation |
+| 2 | What counts as personal data | Prototype | With the client for confirmation |
+| 3 | Saved Reports library | Prototype | With the client for confirmation |
 | 4 | Confirmation before deleting | Prototype | Awaiting answer |
-| 5 | Golden Knowledge bucket | Prototype (small), design | Awaiting answer |
+| 5 | Golden Knowledge bucket | Prototype (small), design | **Answered 2026-10-04** |
 | 6 | Local test data | Prototype | Awaiting answer |
 | 7 | Identity and permissions | Design | Awaiting answer |
 | 8 | Scale and response time | Design | Awaiting answer |
@@ -89,7 +91,9 @@ The brief asks for "a strict confirmation flow before execution, without breakin
 
 Because the brief describes the bucket as theoretical, the prototype uses a small set of sample trios in a local folder.
 
-**Answer.** Awaiting.
+**Answer (2026-10-04).** The bucket is theoretical and does not need to be implemented in the prototype. It should be covered in the HLD and the design document. The assumed structure, a local folder with sample trios for the prototype, is the right approach.
+
+**What was done.** The prototype has seven sample trios in `golden_bucket/` and a simple word-match retrieval. The production design (storage, indexing, retrieval, how the bucket is kept current) is in [DESIGN.md, section 3.1](DESIGN.md#31-hybrid-intelligence-the-golden-knowledge-bucket). Parts 1 and 2 of the question (the real file format and the number of trios) were not answered and remain assumptions; they affect only the design.
 
 ### 6. Local test data
 

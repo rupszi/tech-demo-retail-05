@@ -151,6 +151,13 @@ def _footer(result: TurnResult, console: Console) -> None:
 
 
 def _command(text: str, session: ChatSession, settings: Settings, console: Console) -> None:
+    try:
+        _run_command(text, session, settings, console)
+    except Exception as e:  # noqa: BLE001 - a command must not end the chat
+        console.print(f"[red]That command failed:[/] {e}\n")
+
+
+def _run_command(text: str, session: ChatSession, settings: Settings, console: Console) -> None:
     name, _, argument = text.partition(" ")
     owner = session.profile.user_id
     if name == "/help":

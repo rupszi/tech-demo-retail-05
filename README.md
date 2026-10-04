@@ -185,7 +185,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-752 tests run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key and no network.
+753 tests run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key and no network.
 
 ## Project layout
 
@@ -201,7 +201,7 @@ src/retail_agent/
   cli/             the chat interface
 config/            user profiles and the tone file
 golden_bucket/     sample analyst examples (question, SQL, report)
-tests/             752 tests
+tests/             753 tests
 docs/              design, decisions, example run, plan, tracker, client questions
 ```
 

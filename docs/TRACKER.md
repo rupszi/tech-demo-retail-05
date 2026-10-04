@@ -4,47 +4,49 @@ Updated in the same commit as the work it describes. Gate definitions are in [PL
 
 **Legend:** ⬜ not started · 🟦 in progress · ✅ done (all gates met) · ⛔ blocked
 
-**Last updated:** 2026-10-04 · **Current phase:** 3 · **Overall:** 3 / 10 phases
+**Last updated:** 2026-10-04 · **Overall:** all 10 phases complete.
 
 ## Phase status
 
 | # | Phase | Status | Gates met | Evidence / notes |
 |---|---|:-:|:-:|---|
-| 0 | Scaffold | ✅ | 5 / 5 | `uv sync`, `uv run pytest` (1 passed), `ruff check` and `ruff format --check` clean, `.env` ignored (`git check-ignore`), layout per plan |
-| 1 | Mock data and data layer | ✅ | 5 / 5 | 22 tests pass: deterministic generator, schema match, referential integrity, planted patterns (`test_mock_data.py`); shared backend behaviour and BigQuery dry-run/byte-cap/error classification with stubbed client (`test_backends.py`) |
-| 2 | Safety layer | ✅ | 7 / 7 | 679 tests pass. `test_sql_gate.py`: 73 hostile queries rejected and 24 legitimate queries accepted and executed, for each of 4 profiles; every PII column blocked through 4 access paths; row limit and truncation flag. `test_scoping.py`: rows per user equal pandas ground truth; 18 escape attempts return nothing out of scope; no PII value reaches a result. `test_scrubber.py`, `test_guard.py` (34 blocked, 23 realistic questions allowed). Also checked on real BigQuery: 96 of 96 dry-runs pass |
-| 3 | LLM layer and resilience | 🟦 | 0 / 4 | |
-| 4 | Agent graph | ⬜ | 0 / 7 | Two gates added on 2026-10-04: semantic off-topic handling, scrubbing of final answers |
-| 5 | Reports and delete flow | ⬜ | 0 / 7 | |
-| 6 | Observability | ⬜ | 0 / 4 | |
-| 7 | CLI polish and example run | ⬜ | 0 / 4 | |
-| 8 | Design document | ⬜ | 0 / 6 | |
-| 9 | GCP validation | ⬜ | 0 / 5 | |
+| 0 | Scaffold | ✅ | 5 / 5 | `uv sync`, `uv run pytest`, `ruff check` and `ruff format --check` clean, `.env` ignored, layout per plan |
+| 1 | Mock data and data layer | ✅ | 5 / 5 | `test_mock_data.py`: deterministic generator, schema match, referential integrity, planted patterns. `test_backends.py`: shared backend behaviour; BigQuery dry-run, byte cap and error classification with a stubbed client |
+| 2 | Safety layer | ✅ | 7 / 7 | `test_sql_gate.py`: 73 hostile queries rejected and 24 legitimate queries accepted and executed, for each of 4 profiles; every PII column blocked through 4 access paths; row limit and truncation flag. `test_scoping.py`: rows per user equal pandas ground truth; 18 escape attempts return nothing out of scope; no PII value reaches a result. `test_scrubber.py`, `test_guard.py` (34 blocked, 23 realistic questions allowed). On real BigQuery: 96 of 96 dry-runs pass |
+| 3 | LLM layer and resilience | ✅ | 4 / 4 | `test_llm.py`: backoff with jitter and a cap, fallback through the model list, short provider waits honoured, a rate-limited model rested and skipped, waiting for the soonest model, a clear error when all are limited. `test_agent.py`: call and token budget per question. No test uses the network |
+| 4 | Agent graph | ✅ | 7 / 7 | `test_agent.py` (23 tests) with a scripted model: structure question without a query, single and multi-step answers, scoped data, self-correction, giving up at the limit, forbidden SQL not retried, empty results, large results cut, outages, crashes, blocked messages, scrubbed answers. `test_golden.py`. Real Gemini and BigQuery: `docs/EXAMPLE_RUN.md` |
+| 5 | Reports and delete flow | ✅ | 7 / 7 | `test_reports.py` (9) and `test_delete_flow.py` (16): nothing deleted before confirmation; declining changes nothing; exactly the previewed ids are deleted even when more match later; another user's reports cannot be targeted; the model cannot confirm; undo; audit log; the outcome is reported by the application |
+| 6 | Observability | ✅ | 4 / 4 | `test_tracing.py`: one JSON line per question with steps, timing, tokens, SQL and errors; failures recorded with their cause; waiting for the user excluded from latency; metrics computed from traces. `/trace` and `/stats` shown in the example run |
+| 7 | CLI and example run | ✅ | 4 / 4 | `test_cli.py`; two recorded sessions in `docs/EXAMPLE_RUN.md`; setup verified from a fresh clone with `uv` and with `pip` (all tests pass there; starting without a key gives a clear message) |
+| 8 | Design document | ✅ | 6 / 6 | `docs/DESIGN.md`: six Mermaid diagrams, all checked to parse and render; reasons for every service, model and framework; data flow; error handling; one section per requirement; framework rationale and experience level |
+| 9 | GCP validation | ✅ | 5 / 5 | Schema identical to the live tables; all analyst examples run on BigQuery; two full conversations recorded against real BigQuery and Gemini (11 questions: 9 answered, 2 stopped by the guard as intended, 0 failed); 5 to 10 MB scanned per query; report figures checked against the query result |
+
+**Tests:** 753, about 3 seconds, offline. **Lint:** clean.
 
 ## Deliverables
 
-| ID | Deliverable | Status |
-|---|---|:-:|
-| D1 | Architecture diagram | ⬜ |
-| D2 | Technical explanation | ⬜ |
-| D3 | Working prototype (safety, oversight, resilience, observability) | ⬜ |
-| D4 | CLI chat interface | ⬜ |
-| D5 | Runnable on another machine | ⬜ |
-| D6 | Framework rationale and experience statement | ⬜ |
+| ID | Deliverable | Where | Status |
+|---|---|---|:-:|
+| D1 | Architecture diagram with service choices explained | [DESIGN.md, section 1](DESIGN.md#1-architecture) | ✅ |
+| D2 | Technical explanation: choices, data flow, error handling, setup and example run, each requirement | [DESIGN.md](DESIGN.md), [README](../README.md), [EXAMPLE_RUN.md](EXAMPLE_RUN.md) | ✅ |
+| D3 | Working prototype: safety, oversight, resilience, observability | `src/retail_agent/` | ✅ |
+| D4 | CLI chat interface | `uv run retail-agent` | ✅ |
+| D5 | Runnable on another machine | [README](../README.md), verified from a fresh clone | ✅ |
+| D6 | Framework rationale and experience statement | [DESIGN.md, section 4](DESIGN.md#4-technology-choices-and-why) | ✅ |
 
-## Open questions for the client
+## Questions for the client
 
-The full wording, with the assumption used for each, is in [QUESTIONS.md](QUESTIONS.md). None of them blocks the work: each has an assumption the project is built on until an answer arrives.
+The full wording, with the assumption used for each, is in [QUESTIONS.md](QUESTIONS.md). None of them blocks the work.
 
-**Sent to the client:** not yet.
+**Sent on 2026-10-04.**
 
 | # | Topic | Working assumption | Answer |
 |---|---|---|---|
-| 1 | Which products a user may analyse | A list of brands and/or departments per user | |
-| 2 | What counts as personal data | Names, email, address, postal code and coordinates are blocked; customers shown by ID; demographics allowed per customer | |
-| 3 | Saved Reports library | Built here; text match on title and content; soft delete; own reports only | |
+| 1 | Which products a user may analyse | A list of brands and/or departments per user | With the client for confirmation |
+| 2 | What counts as personal data | Names, email, address, postal code and coordinates are blocked; customers shown by ID; demographics allowed per customer | With the client for confirmation |
+| 3 | Saved Reports library | Built here; text match on title and content; soft delete; own reports only | With the client for confirmation |
 | 4 | Confirmation before deleting | One explicit confirmation listing exactly what will be deleted | |
-| 5 | Golden Knowledge bucket | One JSON document per trio; hundreds to thousands; analyst approves additions | |
+| 5 | Golden Knowledge bucket | A local folder of sample trios in the prototype; the real bucket in the design | **Confirmed 2026-10-04:** no need to implement it in the prototype; a local folder with sample trios is the right approach |
 | 6 | Local test data | Tests use a local mock; real runs use BigQuery | |
 | 7 | Identity and permissions | Single sign-on and a central permissions service | |
 | 8 | Scale and response time | Tens to hundreds of users; 10 to 30 seconds per analysis | |
@@ -53,16 +55,23 @@ The full wording, with the assumption used for each, is in [QUESTIONS.md](QUESTI
 | 11 | Data residency and compliance | Single region (US); Vertex AI in production | |
 | 12 | Cost limits | A cap per question on model usage and data scanned | |
 
+If an answer changes an assumption for questions 1 to 3, the affected code is small and isolated: `config/users.*.json` and `safety/scoping.py` for the product scope, `safety/policy.py` for the list of personal data columns, `reports/store.py` for how reports are matched and deleted.
+
 ## Log
 
 | Date | Change |
 |---|---|
 | 2026-10-01 | Repository initialised, remote set, plan and tracker written |
-| 2026-10-04 | Phase 0 complete: scaffold, tooling, config, env template |
-| 2026-10-04 | Phase 1 complete: mock data generator, DuckDB and BigQuery backends |
-| 2026-10-04 | Canonical schema verified against the live dataset: identical apart from the deliberately omitted `user_geom` |
-| 2026-10-04 | Tables now resolve only by fully qualified name on both backends, after a `WITH`-name bypass was found and closed (DECISIONS D-10) |
-| 2026-10-04 | Phase 2 complete: SQL gate, per-user scoping, query gateway, PII scrubber, input guard |
-| 2026-10-04 | Gate output and scoping verified on real BigQuery (dry-runs and a few small queries); separate profile file added for real brands |
-| 2026-10-04 | Decision log added (`docs/DECISIONS.md`) |
-| 2026-10-04 | Client questions written up with working assumptions (`docs/QUESTIONS.md`) |
+| 2026-10-04 | Phase 0: scaffold, tooling, settings, env template |
+| 2026-10-04 | Phase 1: mock data generator, DuckDB and BigQuery backends. Schema verified against the live dataset |
+| 2026-10-04 | A `WITH`-name bypass in the first SQL gate was found and closed; tables now resolve only by fully qualified name (D-10) |
+| 2026-10-04 | Phase 2: SQL gate, per-user scoping, query gateway, PII scrubber, input guard. Verified on real BigQuery |
+| 2026-10-04 | Decision log and client questions written; questions sent to the client |
+| 2026-10-04 | Client confirmed the approach for the Golden bucket (question 5) |
+| 2026-10-04 | Phase 3: model interface, Gemini adapter, retry and fallback |
+| 2026-10-04 | Phases 4 to 7: conversation graph, tools, reports store, delete flow, traces, CLI |
+| 2026-10-04 | First real runs on the free tier: rate limits led to resting rate-limited models and an ordered model list (D-22) |
+| 2026-10-04 | A real run showed a delete outcome lost to a rate limit; the application now reports it (D-23) |
+| 2026-10-04 | Real reports showed a wrong period and inconsistent revenue; conventions and analyst examples fixed it (D-25) |
+| 2026-10-04 | Phase 9: two sessions recorded against BigQuery and Gemini |
+| 2026-10-04 | Phase 8: design document, README, pinned requirements; setup verified from a fresh clone |
