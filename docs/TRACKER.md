@@ -34,9 +34,9 @@ The evidence below is stated against the current code, so it reflects the revisi
 | 12 | Permanent delete | ✅ | 5 / 5 | `test_reports.py`: deleted reports cannot be listed, opened or found; ids are not reused; the audit entry keeps the titles. `test_delete_flow.py`: a confirmed delete is permanent and says so; the request is audited with titles; all earlier guarantees still pass. `test_cli.py`: the prompt names the reports and says the deletion is permanent. No restore function or `/undo` remains in `src/` |
 | 13 | BigQuery by default, and a BigQuery test group | ✅ | 4 / 4 | `test_smoke.py`: BigQuery is the default. `test_cli.py`: a missing setup is reported with the offline option named, and a missing model key without it. `uv run pytest`: 636 offline tests, the BigQuery group deselected. `uv run pytest -m bigquery`: 79 tests pass against the real dataset (schema, 72 dry-runs of the valid corpus for three profiles, scoping and personal data on real data, a bare table name refused, all analyst examples) |
 | 14 | Time limit per question | ✅ | 2 / 2 | `test_agent.py`: a question past 120 seconds is stopped before its next step, with a message naming the limit and a `budget: time` step in the trace; the limit is a setting |
-| 15 | Documentation in step with the code | 🟦 | 0 / 6 | |
-| 16 | Example run and fresh clone | 🟦 | 0 / 3 | |
-| 17 | Independent audit | ⬜ | 0 / 4 | |
+| 15 | Documentation in step with the code | ✅ | 6 / 6 | `DESIGN.md`, `DECISIONS.md`, `README.md`, `PLAN.md` and `QUESTIONS.md` revised. All seven Mermaid diagrams (six in the design, one in the README) parse and render. A link check over eight documents finds no broken link or anchor. A sweep for the removed features finds them only where the documents describe what changed. Settings in `config.py` and `.env.example` match exactly |
+| 16 | Example run and fresh clone | ✅ | 3 / 3 | Both sessions re-recorded against BigQuery with the final code (`EXAMPLE_RUN.md`): 11 questions, 9 answered, 2 stopped by the guard, 0 failed; 2 of 11 queries failed and were corrected. All 21 figures in the recorded report (10 amounts, 5 percentages, 6 order counts) appear in the results of its two queries. From a fresh clone: `uv sync`, 636 offline tests, lint, `--list-users`, a clear message without a key, offline mode with `--backend duckdb`, and the `pip` route all work |
+| 17 | Independent audit | 🟦 | 0 / 4 | |
 
 ## Deliverables
 
@@ -91,3 +91,4 @@ The full wording, the assumption used for each and what each answer changed are 
 | 2026-10-04 | Phase 12: deleting is permanent; undo removed (D-23) |
 | 2026-10-04 | Phase 13: BigQuery is the default; a BigQuery test group was added (D-29) |
 | 2026-10-04 | Phase 14: a question has a time limit of 120 seconds (D-21) |
+| 2026-10-04 | Phases 15 and 16: every document revised, diagrams and links checked, example sessions re-recorded, fresh clone verified |

@@ -285,17 +285,17 @@ Code: `config.py`, `agent/graph.py`.
 - [x] The stop is recorded in the trace, and a test covers it
 
 ### Phase 15: Documentation in step with the code
-- [ ] `DESIGN.md` reflects every row of "From what to what"
-- [ ] `DECISIONS.md`: changed entries revised, new entries added, known limits and verification current
-- [ ] `README.md`: users, commands, defaults and tests match the code
-- [ ] Every Mermaid diagram parses and renders
-- [ ] Every relative link and anchor resolves
-- [ ] No stale terms remain: undo, soft delete, department scope, the fourth user, the sign-in proxy, the permissions service, old test counts
+- [x] `DESIGN.md` reflects every row of "From what to what"
+- [x] `DECISIONS.md`: changed entries revised, new entries added, known limits and verification current
+- [x] `README.md`: users, commands, defaults and tests match the code
+- [x] Every Mermaid diagram parses and renders
+- [x] Every relative link and anchor resolves
+- [x] No stale terms remain: undo, soft delete, department scope, the fourth user, the sign-in proxy, the permissions service, old test counts
 
 ### Phase 16: Example run and fresh clone
-- [ ] Both example sessions re-recorded with the final code against BigQuery
-- [ ] The figures in the recorded report checked against the query result
-- [ ] Setup verified from a fresh clone, with `uv` and with `pip`
+- [x] Both example sessions re-recorded with the final code against BigQuery
+- [x] The figures in the recorded report checked against the query result
+- [x] Setup verified from a fresh clone, with `uv` and with `pip`
 
 ### Phase 17: Independent audit
 Five separate review passes over the finished repository, each with its own focus: security of the SQL gate and scoping; documentation against code; coverage of the brief and of the client's answers; a mechanical sweep for stale text, links, counts and settings; and correctness of the agent, the delete flow and the failure handling.
