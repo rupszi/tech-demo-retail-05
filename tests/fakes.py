@@ -1,0 +1,44 @@
+"""Test doubles for the model."""
+
+from __future__ import annotations
+
+from retail_agent.llm import LLMError, LLMResponse, ToolCall
+
+
+def call(name: str, call_id: str = "c1", **args) -> ToolCall:
+    return ToolCall(id=call_id, name=name, args=args)
+
+
+def says(text: str = "", *calls: ToolCall, tokens: int = 100) -> LLMResponse:
+    return LLMResponse(text=text, tool_calls=tuple(calls), model="fake", input_tokens=tokens)
+
+
+class ScriptedLLM:
+    """Replays a list of responses (or raises the exceptions in it) and records what it was sent."""
+
+    name = "fake"
+
+    def __init__(self, *script: LLMResponse | Exception):
+        self._script = list(script)
+        self.requests: list[dict] = []
+
+    def generate(self, system, messages, tools):
+        self.requests.append({"system": system, "messages": list(messages), "tools": list(tools)})
+        if not self._script:
+            raise AssertionError("ScriptedLLM ran out of responses")
+        step = self._script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+    @property
+    def calls(self) -> int:
+        return len(self.requests)
+
+
+def transient(message: str = "503 unavailable") -> LLMError:
+    return LLMError(message, transient=True)
+
+
+def permanent(message: str = "400 bad request") -> LLMError:
+    return LLMError(message, transient=False)

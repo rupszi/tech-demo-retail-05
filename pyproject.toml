@@ -14,6 +14,8 @@ dependencies = [
     "google-cloud-bigquery>=3.25",
     "db-dtypes>=1.2",
     "pyarrow>=16",
+    "google-genai>=1.30",
+    "langgraph>=0.6",
 ]
 
 [dependency-groups]
