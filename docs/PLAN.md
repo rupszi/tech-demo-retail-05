@@ -297,12 +297,14 @@ Code: `config.py`, `agent/graph.py`.
 - [x] The figures in the recorded report checked against the query result
 - [x] Setup verified from a fresh clone, with `uv` and with `pip`
 
-### Phase 17: Independent audit
-Five separate review passes over the finished repository, each with its own focus: security of the SQL gate and scoping; documentation against code; coverage of the brief and of the client's answers; a mechanical sweep for stale text, links, counts and settings; and correctness of the agent, the delete flow and the failure handling.
-- [ ] All five passes completed, each reporting findings with file and line
+### Phase 17: Independent review
+Planned as five separate review passes over the finished repository. Two were run: coverage of the brief and of the client's answers, and a mechanical sweep for stale text, links, counts and settings. The other three (security of the SQL gate and scoping, documentation against code, correctness of the agent and the delete flow) were not run. That ground is covered by the tests and by the checks of phase 15, but it did not get a separate review.
+
+The fixes follow one rule: the smallest change that settles the finding. This is a prototype for an evaluation, so a finding about the design is answered in the design, and code changes only where the code was wrong or a trace was missing something.
+- [ ] Both passes completed, each reporting findings with file and line
 - [ ] Every finding checked, then fixed or recorded with the reason it stands
-- [ ] Full verification repeated after the fixes: tests, lint, BigQuery group, links
-- [ ] Audit summary recorded in the tracker
+- [ ] Full verification repeated after the fixes: tests, lint, BigQuery group, links, diagrams
+- [ ] Review summary recorded in the tracker
 
 ### Tests for this revision
 
@@ -312,4 +314,5 @@ Five separate review passes over the finished repository, each with its own focu
 | 12 | Deleted reports are gone for good; ids are not reused; the outcome says permanent | `test_reports.py`, `test_delete_flow.py` (audit trail, messages) | Undo tests |
 | 13 | `test_bigquery_live.py` (opt-in); default backend; startup message | `conftest.py`, `test_smoke.py` | |
 | 14 | A question that exceeds the time limit stops with a message and a trace event | | |
+| 17 | The trace names the analyst examples given to the model, and which limit stopped a question; a business question containing "the story behind" is not blocked | `test_agent.py`, `test_guard.py` | |
 
