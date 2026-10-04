@@ -301,10 +301,10 @@ Code: `config.py`, `agent/graph.py`.
 Planned as five separate review passes over the finished repository. Two were run: coverage of the brief and of the client's answers, and a mechanical sweep for stale text, links, counts and settings. The other three (security of the SQL gate and scoping, documentation against code, correctness of the agent and the delete flow) were not run. That ground is covered by the tests and by the checks of phase 15, but it did not get a separate review.
 
 The fixes follow one rule: the smallest change that settles the finding. This is a prototype for an evaluation, so a finding about the design is answered in the design, and code changes only where the code was wrong or a trace was missing something.
-- [ ] Both passes completed, each reporting findings with file and line
-- [ ] Every finding checked, then fixed or recorded with the reason it stands
-- [ ] Full verification repeated after the fixes: tests, lint, BigQuery group, links, diagrams
-- [ ] Review summary recorded in the tracker
+- [x] Both passes completed, each reporting findings with file and line
+- [x] Every finding checked, then fixed or recorded with the reason it stands
+- [x] Full verification repeated after the fixes: tests, lint, BigQuery group, links, diagrams
+- [x] Review summary recorded in the tracker
 
 ### Tests for this revision
 

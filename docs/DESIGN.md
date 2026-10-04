@@ -491,7 +491,7 @@ After the retry limit, no further query runs for that question and the model is 
 - Old result tables are not resent with every turn.
 - BigQuery caps the bytes a query may bill.
 
-Observed over the three recorded sessions: about 8,800 tokens and 2.4 model calls per question on average, at most 10 MB scanned per query, and a median of 4.7 seconds per answer.
+Observed over the three recorded sessions: about 8,800 tokens and 2.4 model calls per question on average, about 10 MB scanned per query at most, and a median of 4.7 seconds per answer.
 
 **How long an answer may take.** The client accepts the assumed response times and allows one to two minutes for long reports. Ordinary questions are answered in seconds. A long report is produced within the same request, with progress shown, and the time limit stops anything that runs longer. No background job is needed.
 

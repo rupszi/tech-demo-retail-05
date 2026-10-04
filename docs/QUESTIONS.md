@@ -2,7 +2,7 @@
 
 The brief invites questions. This page lists the twelve that were asked, the assumption the project was built on while waiting, the client's answer, and what the answer changed.
 
-**Sent on 2026-10-04. All twelve were answered the same day.** Most answers confirmed the assumptions. The ones that did not are planned as phases 10 to 17 in [PLAN.md, section 9](PLAN.md#9-revision-after-the-clients-answers), and their progress is in the [tracker](TRACKER.md).
+**Sent on 2026-10-04. All twelve were answered the same day.** Most answers confirmed the assumptions. The ones that did not are planned as phases 10 to 16 in [PLAN.md, section 9](PLAN.md#9-revision-after-the-clients-answers), and their progress is in the [tracker](TRACKER.md).
 
 | # | Topic | Answer in short | Result |
 |---|---|---|---|

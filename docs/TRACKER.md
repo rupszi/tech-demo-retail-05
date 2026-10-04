@@ -4,7 +4,7 @@ Updated with the work it describes. Gate definitions are in [PLAN.md](PLAN.md#6-
 
 **Legend:** ⬜ not started · 🟦 in progress · ✅ done (all gates met) · ⛔ blocked
 
-**Last updated:** 2026-10-04 · **Overall:** phases 0 to 9 delivered the prototype. Phases 10 to 16 are the revision after the client's answers. Phase 17 is an independent review of the result and the fixes that followed; it is in progress.
+**Last updated:** 2026-10-04 · **Overall:** phases 0 to 9 delivered the prototype. Phases 10 to 16 are the revision after the client's answers. Phase 17 is an independent review of the result and the fixes that followed. Every gate is met.
 
 **Tests:** 640 offline in about 3 seconds (`uv run pytest`), and 79 against BigQuery in about a minute (`uv run pytest -m bigquery`). **Lint:** clean.
 
@@ -36,7 +36,7 @@ The evidence below is stated against the current code, so it reflects the revisi
 | 14 | Time limit per question | ✅ | 2 / 2 | `test_agent.py`: a question past 120 seconds is stopped before its next step, with a message naming the limit and a `budget: time` step in the trace; the limit is a setting |
 | 15 | Documentation in step with the code | ✅ | 6 / 6 | `DESIGN.md`, `DECISIONS.md`, `README.md`, `PLAN.md` and `QUESTIONS.md` revised. All seven Mermaid diagrams (six in the design, one in the README) parse and render. A link check over eight documents finds no broken link or anchor. A sweep for the removed features finds them only where the documents describe what changed. Settings in `config.py` and `.env.example` match exactly |
 | 16 | Example run and fresh clone | ✅ | 3 / 3 | Both sessions re-recorded against BigQuery after the revision (`EXAMPLE_RUN.md`): 11 questions, 9 answered, 2 stopped by the guard, 0 failed; 2 of 11 queries failed and were corrected. A third session was added in phase 17. All 21 figures in the recorded report (10 amounts, 5 percentages, 6 order counts) appear in the results of its two queries. From a fresh clone: `uv sync`, 640 offline tests, lint, `--list-users`, a clear message without a key, offline mode with `--backend duckdb`, and the `pip` route all work |
-| 17 | Independent review | 🟦 | 1 / 4 | Two review passes ran: coverage of the brief and of the client's answers (19 findings, listed below, and one more found while fixing them), and a mechanical sweep of 13 checks for stale text, links, counts and settings (no findings). Three further passes were planned and not run |
+| 17 | Independent review | ✅ | 4 / 4 | Two review passes ran: coverage of the brief and of the client's answers (19 findings, listed below, and one more found while fixing them), and a mechanical sweep of 13 checks for stale text, links, counts and settings (no findings). Three further passes were planned and not run. All 20 findings are settled. Verified again afterwards: 640 offline tests, lint, 79 BigQuery tests, 60 relative links in 8 documents, all 7 diagrams, and a fresh clone with `uv` and with `pip` |
 
 ## Deliverables
 
@@ -122,3 +122,4 @@ The full wording, the assumption used for each and what each answer changed are 
 | 2026-10-04 | Phase 14: a question has a time limit of 120 seconds (D-21) |
 | 2026-10-04 | Phases 15 and 16: every document revised, diagrams and links checked, example sessions re-recorded, fresh clone verified |
 | 2026-10-04 | Phase 17: two review passes over the finished repository; 19 findings recorded above |
+| 2026-10-04 | Phase 17: the findings were fixed or recorded. A third session was recorded with the brief's own questions; it showed a question ending at the work limit with nothing to show, which led to the last-step rule (D-21). Full verification repeated |
