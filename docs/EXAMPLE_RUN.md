@@ -33,6 +33,10 @@ and some of those are wrong:
 - Session 3, exchange 2: "did spike" describes a steady rise. The cause it gives, registrations
   growing in May and June, is not supported by its own query: registrations were flat until
   August.
+  After this session was recorded, the sample churn trio was given one more sentence, saying
+  that only months whose 90th day has passed count. Asked again, the model reported completed
+  months only, and no longer called later months "projected spikes". The recorded answer is
+  the earlier one.
 
 The instructions tell the model to state a cause only if a result supports it and to check such
 words against the figures, and it still does this. A check that every figure follows from the

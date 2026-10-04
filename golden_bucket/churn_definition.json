@@ -10,7 +10,7 @@
     "spike"
   ],
   "sql": "WITH last_order AS (\n  SELECT user_id, MAX(created_at) AS last_order_at\n  FROM orders\n  WHERE status <> 'Cancelled'\n  GROUP BY user_id\n)\nSELECT FORMAT_TIMESTAMP('%Y-%m', TIMESTAMP_ADD(last_order_at, INTERVAL 90 DAY)) AS churn_month,\n       COUNT(*) AS churned_customers\nFROM last_order\nWHERE last_order_at < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)\nGROUP BY churn_month\nORDER BY churn_month DESC\nLIMIT 12",
-  "report": "Our definition of churn: a customer has churned when 90 days pass without an order, and they are counted in the month in which the 90th day falls. To explain a spike, compare the churned customers of that month with the month before: what they last bought (brand and category), how they were acquired (traffic source) and where they live. A spike often traces back to one large acquisition cohort reaching the 90-day mark.",
+  "report": "Our definition of churn: a customer has churned when 90 days pass without an order, and they are counted in the month in which the 90th day falls. Only months whose 90th day has already passed count: a customer whose last order is less than 90 days old has not churned yet, so a month that has not happened is never reported as churn. To explain a spike, compare the churned customers of that month with the month before: what they last bought (brand and category), how they were acquired (traffic source) and where they live. A spike often traces back to one large acquisition cohort reaching the 90-day mark.",
   "author": "sample, written for the prototype",
   "created": "2026-10-04"
 }
