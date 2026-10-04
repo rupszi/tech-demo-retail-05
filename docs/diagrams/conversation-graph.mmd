@@ -1,0 +1,10 @@
+flowchart LR
+    S([Start]) --> guard
+    guard -->|blocked| E([End])
+    guard -->|allowed| agent
+    agent -->|asks for tools| tools
+    agent -->|final answer| E
+    tools -->|results| agent
+    tools -->|a delete was requested| confirm["confirm_delete<br/>pauses for the user"]
+    confirm --> E
+    confirm -->|other results still to answer| agent

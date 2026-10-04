@@ -41,64 +41,12 @@ Three ideas shape the design.
 
 ## 1. Architecture
 
-```mermaid
-flowchart TB
-    exec["Executive"]
-    idp["Identity provider<br/>signs users in, issues the JWT"]
-    fe["Web chat front end"]
-    editor["Tone editor and analysts"]
-    console["Admin console"]
+The figures in this document are images. Each is drawn from a Mermaid source kept next to it in [`diagrams/`](diagrams/), and each caption links to its source.
 
-    subgraph run["Cloud Run: agent service"]
-        api["API and session layer<br/>verifies the JWT, streams answers"]
-        agent["Conversation graph<br/>guard, agent, tools, confirm"]
-        gate["Query gateway<br/>SQL gate, brand scope, cost check, scrubber"]
-        tools["Tool registry<br/>reports, later charts, email, Slack, web search"]
-    end
-
-    subgraph vertex["Vertex AI"]
-        gemini["Gemini models<br/>ordered list with fallback"]
-        embed["Embedding model"]
-    end
-
-    subgraph stores["Data"]
-        bq[("BigQuery<br/>sales data, read-only,<br/>views without personal data")]
-        pg[("Cloud SQL for PostgreSQL<br/>conversations, reports, audit log, feedback,<br/>preferences, tone versions, vector index")]
-        gcs[("Cloud Storage<br/>Golden Knowledge bucket")]
-    end
-
-    jobs["Background jobs<br/>Cloud Run jobs, Pub/Sub, Scheduler<br/>indexing, nightly validation, evaluations,<br/>tone quality gate, preference extraction"]
-
-    subgraph safety["Managed safety services"]
-        armor["Model Armor"]
-        dlp["Sensitive Data Protection"]
-    end
-
-    subgraph obs["Observability"]
-        trace["Cloud Trace and Cloud Logging"]
-        logs[("BigQuery log sink<br/>dashboards and alerts")]
-    end
-
-    exec --> fe
-    fe -->|sign-in| idp
-    fe -->|HTTPS request with the signed JWT that carries the brand scopes| api
-    api -.->|public keys to verify the signature| idp
-    editor --> console
-    console --> api
-    api --> agent
-    agent -->|instructions, history, tool results| gemini
-    agent --> tools
-    agent -->|SQL written by the model| gate
-    gate -->|validated and scoped SQL| bq
-    agent -->|state, reports, preferences, tone, similar analyses| pg
-    agent --> armor
-    gate --> dlp
-    gcs --> jobs
-    jobs --> embed
-    jobs --> pg
-    agent -.->|trace of every step| trace
-    trace --> logs
-```
+<p align="center">
+  <img src="diagrams/architecture.png" width="960" alt="Production architecture. The web chat front end and the admin console call the agent service on Cloud Run, which uses Gemini on Vertex AI, BigQuery, Cloud SQL, the managed safety services and Cloud Trace. Background jobs index the Golden Knowledge bucket.">
+</p>
+<p align="center"><em>Figure 1. Production architecture: the building blocks, the services they run on, and the flow between them.</em> (<a href="diagrams/architecture.mmd">Mermaid source</a>)</p>
 
 ### Building blocks
 
@@ -177,38 +125,10 @@ The prototype does not verify a token signature, because there is no front end t
 
 ## 2. How a question is answered
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor U as Executive
-    participant UI as Interface
-    participant G as Guard
-    participant A as Agent step
-    participant M as Gemini
-    participant Q as Query gateway
-    participant B as BigQuery
-
-    U->>UI: question
-    UI->>G: check the text with rules, no model call
-    alt blocked
-        G-->>UI: fixed reply
-    else allowed
-        G->>A: question joins the conversation
-        A->>M: rules, tone, brand scope, analyst examples, history
-        M-->>A: tool call with SQL
-        A->>Q: SQL from the model
-        Q->>Q: parse, check allow-lists, rewrite for the brand scope, add LIMIT
-        Q->>B: dry-run, free
-        B-->>Q: bytes to scan, or an error
-        Q->>B: execute
-        B-->>Q: rows
-        Q-->>A: rows after the PII scrub, or an error the model can act on
-        A->>M: tool result
-        M-->>A: answer
-        A-->>UI: answer after the PII scrub
-    end
-    UI-->>U: answer and trace id
-```
+<p align="center">
+  <img src="diagrams/question-flow.png" width="910" alt="Sequence of one question. The guard checks the text, the agent step calls Gemini, the query gateway validates, dry-runs and executes the SQL on BigQuery, and the scrubbed answer returns with a trace id.">
+</p>
+<p align="center"><em>Figure 2. How a question is answered, from the user's message to the answer and its trace id.</em> (<a href="diagrams/question-flow.mmd">Mermaid source</a>)</p>
 
 Step by step:
 
@@ -223,18 +143,10 @@ Step by step:
 
 ### The conversation graph
 
-```mermaid
-flowchart LR
-    S([Start]) --> guard
-    guard -->|blocked| E([End])
-    guard -->|allowed| agent
-    agent -->|asks for tools| tools
-    agent -->|final answer| E
-    tools -->|results| agent
-    tools -->|a delete was requested| confirm["confirm_delete<br/>pauses for the user"]
-    confirm --> E
-    confirm -->|other results still to answer| agent
-```
+<p align="center">
+  <img src="diagrams/conversation-graph.png" width="880" alt="The conversation graph: guard, agent, tools and confirm_delete, with the paths between them.">
+</p>
+<p align="center"><em>Figure 3. The conversation graph.</em> (<a href="diagrams/conversation-graph.mmd">Mermaid source</a>)</p>
 
 Four steps, defined in `src/retail_agent/agent/graph.py`:
 
@@ -284,17 +196,10 @@ This is retrieval, not training. A new definition takes effect as soon as its tr
 
 **Keeping the bucket current.**
 
-```mermaid
-flowchart LR
-    analysts["Analysts write trios"] --> review["Analyst review"]
-    prod["Answers from production<br/>marked helpful, or corrected by an analyst"] --> triage["Automatic triage:<br/>strip brands and figures,<br/>drop duplicates, group, rank"]
-    triage --> review
-    review -->|approved| bucket[("Golden bucket<br/>versioned JSON files")]
-    bucket --> index["Embed and index"]
-    index --> retrieve["Retrieval at question time"]
-    nightly["Nightly job:<br/>dry-run every stored SQL<br/>against the live schema"] --> bucket
-    nightly -->|broken or unused| review
-```
+<p align="center">
+  <img src="diagrams/golden-bucket.png" width="550" alt="Analyst trios and triaged production answers pass analyst review. A nightly job checks every stored query. Approved trios are embedded and indexed for retrieval.">
+</p>
+<p align="center"><em>Figure 4. How the Golden bucket is kept current.</em> (<a href="diagrams/golden-bucket.mmd">Mermaid source</a>)</p>
 
 - **Sources.** Analysts add trios directly. In addition, answers from production that users marked helpful, and answers an analyst had to correct, become candidates.
 - **Stripping brands and figures.** A candidate comes from one user's conversation, so it names their brands and their numbers. Before review, the literal values in its SQL are removed or made relative, as in the sample trios: no brand filter, because the gate adds the user's own, and dates relative to the current date. A model rewrites the report so that it keeps the definition and the reasoning and drops the figures. The analyst who approves the trio checks that nothing specific is left.
@@ -383,29 +288,10 @@ SELECT COUNT(*) FROM (
 
 The assistant manages a library of saved reports. Deleting is destructive, so the model may request it but cannot do it. The client confirmed that one confirmation is enough, that reports are not shared between users, and that deleted reports do not need to be recoverable.
 
-```mermaid
-sequenceDiagram
-    actor U as User
-    participant UI as Interface
-    participant A as Conversation graph
-    participant M as Gemini
-    participant R as Reports store
-
-    U->>UI: Delete all reports mentioning X
-    UI->>A: ask
-    A->>M: question
-    M-->>A: tool call delete_reports, mentioning X
-    A->>R: find matching reports owned by this user
-    R-->>A: ids and titles
-    A->>A: store exactly these ids in the conversation state
-    A-->>UI: paused, with the list to confirm
-    UI->>U: shows the list, says it is permanent, asks yes or no
-    U->>UI: yes
-    UI->>A: resume, approved
-    A->>R: delete exactly the stored ids
-    R-->>A: done, audit log written
-    A-->>UI: Deleted 2 reports, this cannot be undone
-```
+<p align="center">
+  <img src="diagrams/delete-confirmation.png" width="700" alt="Sequence of a delete. The model requests it, the graph stores the matching ids and pauses, the interface asks the user, and only the stored ids are deleted after a yes.">
+</p>
+<p align="center"><em>Figure 5. Deleting saved reports: the request, the pause, and the confirmation.</em> (<a href="diagrams/delete-confirmation.mmd">Mermaid source</a>)</p>
 
 What makes it strict:
 
@@ -442,18 +328,10 @@ Both phrasings in the brief are covered: "mentioning X" is a case-insensitive te
 
 **System level: learning from what happened.**
 
-```mermaid
-flowchart LR
-    traces["Traces and user feedback"] --> review["Weekly failure review<br/>grouped by cause"]
-    review --> trios["New or corrected trios"]
-    review --> rules["Changes to instructions"]
-    review --> cases["New evaluation cases"]
-    trios --> evals["Evaluation suite"]
-    rules --> evals
-    cases --> evals
-    evals -->|passes| release["Release"]
-    evals -->|fails| review
-```
+<p align="center">
+  <img src="diagrams/learning-loop.png" width="840" alt="Traces and feedback feed a weekly failure review, which produces trios, instruction changes and evaluation cases. They must pass the evaluation suite before release.">
+</p>
+<p align="center"><em>Figure 6. The system-level learning loop.</em> (<a href="diagrams/learning-loop.mmd">Mermaid source</a>)</p>
 
 **How failures are grouped.** A weekly job takes the traces that failed, gave up, were marked not helpful, or were followed by a rephrase. It groups them by a key that needs no judgement: the outcome, the error code of the first failed step, and the analyst example that was retrieved, if any. Within a group, questions are clustered by similarity, so one cause is not counted many times. Groups are ranked by how many different users they affected.
 

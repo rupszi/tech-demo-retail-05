@@ -1,0 +1,21 @@
+sequenceDiagram
+    actor U as User
+    participant UI as Interface
+    participant A as Conversation graph
+    participant M as Gemini
+    participant R as Reports store
+
+    U->>UI: Delete all reports<br/>mentioning X
+    UI->>A: ask
+    A->>M: question
+    M-->>A: tool call delete_reports,<br/>mentioning X
+    A->>R: find matching reports owned by this user
+    R-->>A: ids and titles
+    A->>A: store exactly these ids<br/>in the conversation state
+    A-->>UI: paused, with the list<br/>to confirm
+    UI->>U: shows the list,<br/>says it is permanent,<br/>asks yes or no
+    U->>UI: yes
+    UI->>A: resume, approved
+    A->>R: delete exactly the stored ids
+    R-->>A: done, audit log written
+    A-->>UI: Deleted 2 reports,<br/>this cannot be undone

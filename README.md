@@ -226,7 +226,7 @@ src/retail_agent/
 config/            sample token payloads for the demo users, and the tone file
 golden_bucket/     sample analyst examples (question, SQL, report)
 tests/             767 offline tests, 79 against BigQuery, and a check of the tests themselves
-docs/              requirements, design, decisions, example run, plan, tracker, client questions
+docs/              requirements, design and its figures, decisions, example run, plan, tracker, client questions
 ```
 
 ## Documents

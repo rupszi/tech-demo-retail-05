@@ -32,7 +32,7 @@ Section numbers refer to [DESIGN.md](DESIGN.md); decisions (D-08 and so on) to [
 
 | # | The brief asks | Status | Where |
 |---|---|---|---|
-| 1 | Architecture diagram with the building blocks, services, compute and flow, and a reason for each choice | Done | [1](DESIGN.md#1-architecture) |
+| 1 | Architecture diagram with the building blocks, services, compute and flow, and a reason for each choice | Done | [1](DESIGN.md#1-architecture); Mermaid source in [diagrams/architecture.mmd](diagrams/architecture.mmd) |
 | 2.1 | Reasoning for the cloud services, models and framework | Done | The building-blocks table in [1](DESIGN.md#1-architecture), and [4](DESIGN.md#4-technology-choices-and-why) |
 | 2.2 | Data flow between the components | Done | [2](DESIGN.md#2-how-a-question-is-answered), [how the components talk to each other](DESIGN.md#how-the-components-talk-to-each-other), [6](DESIGN.md#6-where-data-lives) |
 | 2.3 | Error handling and fallback strategies | Done | [5](DESIGN.md#5-error-handling-and-fallbacks), [3.5](DESIGN.md#35-resilience) |

@@ -1,0 +1,30 @@
+sequenceDiagram
+    autonumber
+    actor U as Executive
+    participant UI as Interface
+    participant G as Guard
+    participant A as Agent step
+    participant M as Gemini
+    participant Q as Query gateway
+    participant B as BigQuery
+
+    U->>UI: question
+    UI->>G: check the text with rules,<br/>no model call
+    alt blocked
+        G-->>UI: fixed reply
+    else allowed
+        G->>A: question joins<br/>the conversation
+        A->>M: rules, tone, brand scope,<br/>analyst examples, history
+        M-->>A: tool call with SQL
+        A->>Q: SQL from the model
+        Q->>Q: parse, check allow-lists,<br/>rewrite for the brand scope,<br/>add LIMIT
+        Q->>B: dry-run, free
+        B-->>Q: bytes to scan,<br/>or an error
+        Q->>B: execute
+        B-->>Q: rows
+        Q-->>A: rows after the PII scrub,<br/>or an error the model can act on
+        A->>M: tool result
+        M-->>A: answer
+        A-->>UI: answer after the PII scrub
+    end
+    UI-->>U: answer and trace id

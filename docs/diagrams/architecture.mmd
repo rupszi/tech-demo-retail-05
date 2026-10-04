@@ -1,0 +1,56 @@
+flowchart TB
+    exec["Executive"]
+    fe["Web chat front end"]
+    idp["Identity provider<br/>signs users in,<br/>issues the JWT"]
+    editor["Tone editor and analysts"]
+    console["Admin console"]
+
+    subgraph run["Cloud Run: agent service"]
+        api["API and session layer<br/>verifies the JWT, streams answers"]
+        agent["Conversation graph<br/>guard, agent, tools, confirm"]
+        tools["Tool registry<br/>reports, later charts,<br/>email, Slack, web search"]
+        gate["Query gateway<br/>SQL gate, brand scope,<br/>cost check, scrubber"]
+    end
+
+    gcs[("Cloud Storage<br/>Golden Knowledge<br/>bucket")]
+    jobs["Background jobs<br/>Cloud Run jobs, Pub/Sub, Scheduler<br/>indexing, nightly validation,<br/>evaluations, tone quality gate,<br/>preference extraction"]
+
+    subgraph safety["Managed safety services"]
+        armor["Model Armor"]
+        dlp["Sensitive Data<br/>Protection"]
+    end
+
+    subgraph obs["Observability"]
+        trace["Cloud Trace and<br/>Cloud Logging"]
+        logs[("BigQuery log sink<br/>dashboards<br/>and alerts")]
+    end
+
+    subgraph vertex["Vertex AI"]
+        gemini["Gemini models<br/>ordered list<br/>with fallback"]
+        embed["Embedding model"]
+    end
+
+    subgraph stores["Data"]
+        bq[("BigQuery<br/>sales data,<br/>read-only, views<br/>without personal data")]
+        pg[("Cloud SQL for PostgreSQL<br/>conversations, reports,<br/>audit log, feedback,<br/>preferences, tone versions,<br/>vector index")]
+    end
+
+    exec --> fe
+    fe -->|sign-in| idp
+    fe -->|"HTTPS request with<br/>the signed JWT that carries<br/>the brand scopes"| api
+    idp -.->|"public keys to verify<br/>the signature"| api
+    editor --> console
+    console --> api
+    api --> agent
+    agent -->|"instructions,<br/>history,<br/>tool results"| gemini
+    agent --> tools
+    agent -->|"SQL written<br/>by the model"| gate
+    gate -->|"validated and<br/>scoped SQL"| bq
+    agent -->|"state, reports,<br/>preferences, tone,<br/>similar analyses"| pg
+    agent --> armor
+    gate --> dlp
+    gcs --> jobs
+    jobs --> embed
+    jobs --> pg
+    agent -.->|"trace of<br/>every step"| trace
+    trace --> logs

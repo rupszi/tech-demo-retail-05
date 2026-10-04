@@ -1,0 +1,9 @@
+flowchart TB
+    analysts["Analysts write trios"] --> review["Analyst review"]
+    prod["Answers from production<br/>marked helpful, or corrected by an analyst"] --> triage["Automatic triage:<br/>strip brands and figures,<br/>drop duplicates, group, rank"]
+    triage --> review
+    review -->|approved| bucket[("Golden bucket<br/>versioned JSON files")]
+    bucket --> index["Embed and index"]
+    index --> retrieve["Retrieval at question time"]
+    nightly["Nightly job:<br/>dry-run every stored SQL<br/>against the live schema"] --> bucket
+    nightly -->|broken or unused| review

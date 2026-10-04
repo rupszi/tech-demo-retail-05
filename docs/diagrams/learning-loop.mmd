@@ -1,0 +1,10 @@
+flowchart LR
+    traces["Traces and user feedback"] --> review["Weekly failure review<br/>grouped by cause"]
+    review --> trios["New or corrected trios"]
+    review --> rules["Changes to instructions"]
+    review --> cases["New evaluation cases"]
+    trios --> evals["Evaluation suite"]
+    rules --> evals
+    cases --> evals
+    evals -->|passes| release["Release"]
+    evals -->|fails| review
