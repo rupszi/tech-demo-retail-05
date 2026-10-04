@@ -2,7 +2,7 @@
 
 A chat assistant that lets non-technical executives ask questions about sales, customers and products, discuss the answers, and get reports with action items. It answers from the company's BigQuery data, guided by how human analysts answered similar questions before.
 
-This document describes how the system works in production and how the prototype in this repository implements it. Where the two differ, the text says so.
+This document describes how the system works in production and how the prototype in this repository implements it. Where the two differ, the text says so. It reflects the client's answers to our questions, which are recorded in [QUESTIONS.md](QUESTIONS.md).
 
 | If you want | Read |
 |---|---|
@@ -27,11 +27,11 @@ Three ideas shape the design.
 | # | Requirement | Prototype | Section |
 |---|---|---|---|
 | 1 | Hybrid intelligence (Golden bucket) | Local folder of sample trios, as agreed with the client | [3.1](#31-hybrid-intelligence-the-golden-knowledge-bucket) |
-| 2 | Safety and PII masking, per-user product scope | **Built and tested** | [3.2](#32-safety-and-pii) |
+| 2 | Safety and PII masking, per-user brand scope | **Built and tested** | [3.2](#32-safety-and-pii) |
 | 3 | High-stakes oversight | **Built and tested** | [3.3](#33-high-stakes-oversight) |
 | 4 | Continuous improvement | Design | [3.4](#34-continuous-improvement) |
 | 5 | Resilience and graceful error handling | **Built and tested** | [3.5](#35-resilience) |
-| 6 | Quality assurance | 753 automated tests; evaluation design | [3.6](#36-quality-assurance) |
+| 6 | Quality assurance | 636 offline tests and 79 against BigQuery; evaluation design | [3.6](#36-quality-assurance) |
 | 7 | Observability | **Built and tested** | [3.7](#37-observability) |
 | 8 | Agility (tone without redeployment) | Tone file read on every question; design for the rest | [3.8](#38-agility-changing-the-tone-without-a-deployment) |
 
@@ -41,15 +41,16 @@ Three ideas shape the design.
 
 ```mermaid
 flowchart TB
-    exec["Executive<br/>web chat, later Slack"]
-    admin["CEO office and analysts<br/>admin console"]
-    iap["Identity-Aware Proxy<br/>company single sign-on"]
+    exec["Executive"]
+    fe["Web chat front end<br/>signs the user in"]
+    editor["Tone editor and analysts"]
+    console["Admin console"]
 
     subgraph run["Cloud Run: agent service"]
-        api["API and session layer<br/>streams answers"]
+        api["API and session layer<br/>verifies the JWT, streams answers"]
         agent["Conversation graph<br/>guard, agent, tools, confirm"]
-        gate["Query gateway<br/>SQL gate, user scope, cost check, scrubber"]
-        tools["Tool registry<br/>reports, later charts, email, web search"]
+        gate["Query gateway<br/>SQL gate, brand scope, cost check, scrubber"]
+        tools["Tool registry<br/>reports, later charts, email, Slack, web search"]
     end
 
     subgraph vertex["Vertex AI"]
@@ -58,12 +59,12 @@ flowchart TB
     end
 
     subgraph stores["Data"]
-        bq[("BigQuery<br/>sales data, read-only,<br/>row and column policies")]
+        bq[("BigQuery<br/>sales data, read-only,<br/>views without personal data")]
         pg[("Cloud SQL for PostgreSQL<br/>conversations, reports, audit log,<br/>preferences, tone versions, vector index")]
         gcs[("Cloud Storage<br/>Golden Knowledge bucket")]
     end
 
-    jobs["Background jobs<br/>Cloud Run jobs, Pub/Sub, Scheduler<br/>indexing, nightly validation, evaluations,<br/>preference extraction, email delivery"]
+    jobs["Background jobs<br/>Cloud Run jobs, Pub/Sub, Scheduler<br/>indexing, nightly validation, evaluations,<br/>tone quality gate, preference extraction"]
 
     subgraph safety["Managed safety services"]
         armor["Model Armor"]
@@ -75,9 +76,10 @@ flowchart TB
         logs[("BigQuery log sink<br/>dashboards and alerts")]
     end
 
-    exec --> iap
-    admin --> iap
-    iap --> api
+    exec --> fe
+    fe -->|request with a signed JWT that carries the brand scopes| api
+    editor --> console
+    console --> api
     api --> agent
     agent -->|instructions, history, tool results| gemini
     agent --> tools
@@ -97,19 +99,31 @@ flowchart TB
 
 | Block | Service | What it does | Why this one |
 |---|---|---|---|
-| Sign-in | Identity-Aware Proxy with company single sign-on | Authenticates every request before it reaches our code and passes on a signed identity | No login code to write or get wrong; the app only ever sees authenticated users |
+| Sign-in | The web front end, with a signed JWT on every request | The front end signs the user in and sends a token that carries who they are and which brands they may see. The API verifies it | Specified by the client. The service needs no user database and no permissions lookup, so it stays stateless |
 | Agent service | Cloud Run | Runs the API and the conversation graph in stateless containers | Scales to zero and up with demand, supports streamed responses, and no cluster to operate |
 | Orchestration | LangGraph | The conversation as a graph of named steps with saved state | Pausing for a human and resuming is built in, and steps map directly to trace spans (see [4](#4-technology-choices-and-why)) |
-| Model | Gemini on Vertex AI | Writes SQL, analysis and reports | The brief asks for Gemini; Vertex AI gives service-account access and enterprise data terms |
+| Model | Gemini on Vertex AI | Writes SQL, analysis and reports | The brief asks for Gemini; Vertex AI gives service-account access instead of a long-lived key |
 | Analytical data | BigQuery | The sales data; the agent only reads | The data is already there; dry-runs and byte caps give cost control for free |
 | Application state | Cloud SQL for PostgreSQL | Conversation checkpoints, saved reports, audit log, preferences, tone versions, vector index | One transactional store for everything that must be consistent, instead of several services |
-| Golden bucket | Cloud Storage plus a vector index in PostgreSQL (pgvector) | Source of truth for analyst trios, and fast similarity search over them | Files are easy for analysts to review and version; the corpus is thousands, not millions, so a dedicated vector service would be unused capacity |
-| Background work | Cloud Run jobs, Pub/Sub, Cloud Scheduler | Indexing, nightly validation, evaluations, email | Keeps slow or scheduled work out of the request path |
+| Golden bucket | Cloud Storage plus a vector index in PostgreSQL (pgvector) | Source of truth for analyst trios, and similarity search over them | Files are easy for analysts to review and version; at about 1,000 trios a dedicated vector service would be unused capacity |
+| Background work | Cloud Run jobs, Pub/Sub, Cloud Scheduler | Indexing, nightly validation, evaluations, the tone quality gate | Keeps slow or scheduled work out of the request path |
 | Safety services | Model Armor, Sensitive Data Protection | Screen prompts for injection; inspect output for personal data | Managed detectors are stronger than hand-written patterns; they are a second layer, not the first |
 | Observability | OpenTelemetry to Cloud Trace and Cloud Logging, with a sink to BigQuery | Traces, logs, metrics, dashboards, alerts | Standard, queryable with SQL, and no extra vendor |
 | Secrets | Secret Manager | Database credentials and third-party keys | Nothing sensitive in code or images |
 
 Vertex AI appears in the current Google Cloud console under the name Agent Platform; the API and SDK are the same.
+
+The client has no data compliance requirements, so the region is chosen for cost and latency: the US, where the dataset lives.
+
+### Identity and scopes
+
+The client's answer is that the front end sends a JWT with the user's scopes. The design follows from that.
+
+- **Verified on every request.** The API checks the token's signature against the issuer's public keys, and its expiry, issuer and audience. A request without a valid token is refused before it reaches the agent.
+- **Scopes come only from the token.** Not from the request body, not from the conversation, and never from the model. The model is told the user's brands so that it can explain them, but what it is told has no effect on what a query returns.
+- **Denied by default.** The assumed claim format is a `scopes` list with entries such as `brand:Levi's`. The CEO's token carries `brand:*`. A token with no brand scope describes a user who may see nothing; seeing everything is always an explicit grant, never the absence of a restriction.
+- **Nothing is cached.** The scopes are read from the token on every request and are not stored in the conversation, so a change to a user's brands takes effect with their next token.
+- **Ownership.** A conversation and its saved reports belong to the token's subject.
 
 ### What the prototype uses instead
 
@@ -117,15 +131,17 @@ The prototype runs on one machine with no cloud services except BigQuery and the
 
 | Production | Prototype | Seam |
 |---|---|---|
-| Web chat behind Identity-Aware Proxy | CLI with `--user` | `ChatSession` is what any interface calls |
+| Web chat that calls the API | CLI | `ChatSession` is what any interface calls |
+| A JWT from the front end, verified by the API | Sample token payloads in `config/users.<backend>.json`, chosen with `--user` | `UserProfile.from_claims` |
 | Cloud SQL (checkpoints) | In-memory checkpointer | LangGraph checkpointer |
 | Cloud SQL (reports, audit) | SQLite file | `ReportStore` |
 | Cloud Storage and pgvector | `golden_bucket/` folder and word overlap | `find_similar` |
 | Tone versions in a database | `config/persona.md` | `load_persona` |
 | Cloud Trace and Logging | `logs/traces.jsonl` | `Tracer` |
 | Vertex AI with a service account | Google AI Studio API key | `GEMINI_AUTH=vertex` switches it |
-| Entitlements service | `config/users.<backend>.json` | `UserProfile` |
-| BigQuery | BigQuery, or a local DuckDB mock for tests | `DataBackend` |
+| BigQuery | BigQuery by default; `--backend duckdb` is an offline mock | `DataBackend` |
+
+The prototype does not verify a token signature, because there is no front end to issue one. The mapping from claims to what a user may see is real and tested.
 
 ---
 
@@ -148,10 +164,10 @@ sequenceDiagram
         G-->>UI: fixed reply
     else allowed
         G->>A: question joins the conversation
-        A->>M: rules, tone, user scope, analyst examples, history
+        A->>M: rules, tone, brand scope, analyst examples, history
         M-->>A: tool call with SQL
         A->>Q: SQL from the model
-        Q->>Q: parse, check allow-lists, rewrite for the user's scope, add LIMIT
+        Q->>Q: parse, check allow-lists, rewrite for the brand scope, add LIMIT
         Q->>B: dry-run, free
         B-->>Q: bytes to scan, or an error
         Q->>B: execute
@@ -166,11 +182,11 @@ sequenceDiagram
 
 Step by step:
 
-1. **Identity.** The interface knows who the user is (single sign-on in production, `--user` in the prototype) and loads which brands and departments they may analyse.
+1. **Identity.** The API verifies the token and builds the user's profile from its claims: who they are and which brands they may analyse. The prototype reads a sample token payload chosen with `--user`.
 2. **Guard.** Rules check the message for prompt injection, requests for personal data, probing for secrets and obviously unrelated requests. A blocked message gets a fixed reply, is never added to the conversation, and costs no tokens.
-3. **Instructions.** The model's instructions are assembled for this question: fixed rules, the tone, today's date, the user's scope, the table descriptions (without personal data columns), and the analyst trios most similar to the question.
+3. **Instructions.** The model's instructions are assembled for this question: fixed rules, the tone, today's date, the user's brands, the table descriptions (without personal data columns), and the analyst trios most similar to the question.
 4. **Model call.** The model either answers or asks to run tools. It may ask for several queries in one step, which saves round trips.
-5. **Query gateway.** Every SQL statement goes through the same pipeline: validate, scope to the user, dry-run, execute, scrub. The model never talks to the database.
+5. **Query gateway.** Every SQL statement goes through the same pipeline: validate, scope to the user's brands, dry-run, execute, scrub. The model never talks to the database.
 6. **Loop.** Results go back to the model. On an error, the model sees the message and may correct the query, within a fixed budget.
 7. **Answer.** The final text is scrubbed for personal data and returned with a trace id.
 8. **Trace.** Every step above is recorded with timing, tokens, SQL and errors.
@@ -192,7 +208,7 @@ flowchart LR
 Four steps, defined in `src/retail_agent/agent/graph.py`:
 
 - **guard**: the rule-based input check.
-- **agent**: one model call. It also enforces the per-question budget.
+- **agent**: one model call. It also enforces the limits per question on model calls, tokens and time.
 - **tools**: runs what the model asked for. A delete request is only prepared here.
 - **confirm_delete**: pauses until the user decides, then acts and reports the outcome itself.
 
@@ -206,24 +222,42 @@ The model has five tools: `run_sql`, `save_report`, `list_reports`, `get_report`
 
 ### 3.1 Hybrid intelligence: the Golden Knowledge bucket
 
-**The problem.** The data alone does not say what the business means by "churn", which statuses count as revenue, or what a good quarterly report contains. Analysts know. Their past work is stored as trios: a question, the SQL that answered it, and the analyst's report.
+**The problem.** The data alone does not say what the business means by "churn", which statuses count as revenue, or what a good quarterly report contains. Analysts know. Their past work is stored as trios: a question, the SQL that answered it, and the analyst's report. The client confirmed that the bucket holds about 1,000 trios in JSON.
+
+**What a trio looks like.** One JSON document per trio:
+
+```json
+{
+  "question": "Why did our churn rate spike last month?",
+  "sql": "WITH last_order AS (...) SELECT ...",
+  "report": "Our definition of churn: a customer has churned when 90 days pass without an order ...",
+  "tags": ["churn", "retention", "inactive"],
+  "tables": ["orders"],
+  "author": "analytics team",
+  "created": "2025-06-01",
+  "validated": "2026-10-03"
+}
+```
+
+The sample trios in the prototype have the first six fields. `tables` and `validated` are filled in by the indexing and validation jobs.
 
 **At question time.**
 
-1. The question is embedded and compared with the embeddings of stored trios.
-2. Candidates are filtered by what the user may see: each trio is tagged with the product scope it covers, and a trio about products outside the user's scope is not used. This matters because a trio's report text can contain figures.
-3. The top few are placed in the model's instructions as worked examples: the question, the SQL, and the analyst's reasoning. The instructions say to reuse the definitions and the line of reasoning, and to adapt the SQL rather than copy it.
-4. The model's own SQL still goes through the query gateway. An example cannot bypass any rule.
+1. The question is embedded and compared with the embeddings of the stored trios.
+2. The top few are placed in the model's instructions as worked examples: the question, the SQL, and the analyst's reasoning. The instructions say to reuse the definitions and the line of reasoning, and to adapt the SQL rather than copy it.
+3. The model's own SQL still goes through the query gateway, which applies the user's brand scope. An example cannot bypass any rule.
 
 This is retrieval, not training. A new definition takes effect as soon as its trio is indexed.
+
+**Trios are written without brand names or figures.** Users have different brands, and a trio's report could contain numbers that one user may see and another may not. Tagging each trio with a scope and filtering per user would split a 1,000-trio bucket into many small ones and make retrieval worse for everyone. Instead a trio carries the method: SQL that names no brand, and a report that explains the definition and the line of reasoning. The user's scope is applied afterwards, by the gate, to the SQL the model actually writes. One trio therefore serves every user, and nothing in a trio can leak between users.
 
 **Keeping the bucket current.**
 
 ```mermaid
 flowchart LR
     analysts["Analysts write trios"] --> review["Analyst review"]
-    prod["Answers from production<br/>marked helpful, or corrected by an analyst"] --> cand["Candidate queue"]
-    cand --> review
+    prod["Answers from production<br/>marked helpful, or corrected by an analyst"] --> triage["Automatic triage:<br/>strip brands and figures,<br/>drop duplicates, group, rank"]
+    triage --> review
     review -->|approved| bucket[("Golden bucket<br/>versioned JSON files")]
     bucket --> index["Embed and index"]
     index --> retrieve["Retrieval at question time"]
@@ -232,28 +266,40 @@ flowchart LR
 ```
 
 - **Sources.** Analysts add trios directly. In addition, answers from production that users marked helpful, and answers an analyst had to correct, become candidates.
-- **Review.** Nothing produced by the assistant enters the bucket without an analyst approving it. Otherwise the system would learn from its own mistakes.
-- **Versioning.** The bucket has object versioning. Each trio records author, date, the tables it uses and the product scope it covers.
+- **Review.** Nothing produced by the assistant enters the bucket without an analyst approving it. Otherwise the system would learn from its own mistakes. The client left this decision to us.
+- **Versioning.** The bucket has object versioning. Each trio records its author, its date and the tables it uses.
 - **Validation.** A nightly job dry-runs every stored SQL statement against the live schema. A trio that no longer runs is flagged and taken out of retrieval until fixed. Dry-runs are free.
 - **Duplicates and decay.** A new trio that is nearly identical to an existing one replaces it rather than joining it. Trios that have not been retrieved for a long time are flagged for review.
 
-**In the prototype.** As agreed with the client, the bucket is the folder `golden_bucket/` with seven sample trios, and retrieval is by shared words, which needs no extra service. The interface (`find_similar`) is the one the embedding search would implement. A test runs every stored SQL statement through the SQL gate and the database, which is the nightly validation in miniature.
+**At 1,000 trios and hundreds of users.** The client asked how this scales. Reading scales easily; writing is where the care is needed.
 
-**What it changed in practice.** Recording the example run exposed two errors in the model's reports: a "last quarter" computed as the last 90 days, and totals the model added up itself, one of them wrongly. Both were fixed by adding one trio for quarterly reports that states the calendar-quarter rule and returns every total from SQL. The next run produced a report whose figures all match the query results. No code changed.
+| Concern | At this scale | Design |
+|---|---|---|
+| Retrieval cost | One embedding call and one search over 1,000 vectors per question | Exact search takes milliseconds, so no approximate index is needed. Each service instance keeps the index in memory and reloads it when the bucket version changes. Embeddings of repeated questions are cached |
+| Retrieval load | Hundreds of users asking tens of questions a day is a few thousand lookups a day | Negligible next to the model call that follows |
+| Candidates from production | Hundreds of users produce far more candidate answers than analysts can read | An automatic funnel. Only answers that were marked helpful, or corrected by an analyst, are considered. Brand names and figures are stripped. Candidates close to an existing trio are dropped. The rest are grouped by similarity and ranked by how many different users asked that kind of question. Analysts review the top groups each week, one representative per group |
+| Analyst effort | Must not grow with the number of users | It follows the number of distinct kinds of question, which grows slowly |
+| Bucket size | Should stay near 1,000 useful trios | Duplicates are merged, and trios that are no longer retrieved are retired |
+| Consistency across instances | Several instances serve at once | The index is versioned. An instance serves one version at a time and switches atomically |
+| Retrieval quality | More trios means more near-misses | A fixed set of questions with a known best trio is part of the evaluation suite |
+
+**In the prototype.** As agreed with the client, the bucket is the folder `golden_bucket/` with seven sample trios, and retrieval is by shared words, which needs no extra service. The interface (`find_similar`) is the one the embedding search would implement. A test runs every stored SQL statement through the SQL gate and the database, and the BigQuery test group runs them on the real dataset. This is the nightly validation in miniature.
+
+**What it changed in practice.** Recording the example run exposed two errors in the model's reports: a "last quarter" computed as the last 90 days, and totals the model added up itself, one of them wrongly. Both were fixed by adding one trio for quarterly reports that states the calendar-quarter rule and returns every total from SQL. In the run recorded afterwards, every figure in the report matches the query result. No code changed.
 
 ### 3.2 Safety and PII
 
-The brief has three requirements here: only analysis questions, no personal data in output, and each user sees only data for their own products. They are met by layers, each of which holds on its own.
+The brief has three requirements here: only analysis questions, no personal data in output, and each user sees only data for their own products. The client confirmed that "their own products" means their brands, and that the CEO sees all. The requirements are met by layers, each of which holds on its own.
 
 | Layer | What it stops | Where |
 |---|---|---|
-| Sign-in | Anonymous use | Identity-Aware Proxy (prototype: `--user`) |
+| Token check | Anonymous or forged requests | The API verifies the JWT (prototype: `--user` picks a sample payload) |
 | Input guard | Obvious injection, requests for personal data, secret probing, unrelated requests, over-long input | `safety/guard.py`; Model Armor in production |
 | Instructions | Honest mistakes by the model | `agent/prompts.py` |
 | **SQL gate** | Anything that is not a single read-only query on the four allowed tables | `safety/validator.py` |
-| **Scope rewrite** | Rows for products the user may not see | `safety/scoping.py` |
+| **Scope rewrite** | Rows for brands the user may not see | `safety/scoping.py` |
 | **Column allow-list** | Personal data columns | `safety/scoping.py`, `safety/policy.py` |
-| Database policies | The same two rules, enforced again by BigQuery | Production only |
+| Database permissions | Writes, other data, and personal data columns, refused again by BigQuery | Production only |
 | Output scrubber | Personal data that reached text anyway | `safety/scrubber.py`; Sensitive Data Protection in production |
 | Log hygiene | Personal data in traces | Questions and answers are scrubbed before logging |
 
@@ -273,12 +319,13 @@ The three layers in bold are the guarantees. The others reduce cost and noise, o
 | Hiding text in SQL comments | Removed: only SQL regenerated from the syntax tree is executed |
 | A huge query to run up cost | Refused by the dry-run and capped by BigQuery's byte limit |
 | Instructions planted in data or in a saved report | The model is told results are data; and it still has no harmful tool |
+| A token with no brand scope, or with scopes of another kind | Sees nothing: access is denied unless a brand scope grants it |
 
-The test suite contains 73 hostile queries, all rejected, and 24 legitimate analytical queries, all accepted, for each of four user profiles.
+The test suite contains 73 hostile queries, all rejected, and 24 legitimate analytical queries, all accepted, for each of three user profiles.
 
-**Personal data.** Seven `users` columns are classed as personal data. The real `users` table only ever appears inside a subquery that selects the remaining columns by name, so `SELECT *` and whole-row expressions cannot reach them. Customers are identified by ID, which keeps "top customers" working. Details are in [D-09](DECISIONS.md#d-09-personal-data-is-kept-out-by-a-column-allow-list-customers-are-shown-by-id).
+**Personal data.** The client confirmed the list: names, email, address, postal code and coordinates. These are seven columns of `users`. The real `users` table only ever appears inside a subquery that selects the remaining columns by name, so `SELECT *` and whole-row expressions cannot reach them. Customers are identified by ID, which the client confirmed is fine and which keeps "top customers" working. Age, gender, city, state and country may be shown for an individual customer; the client confirmed this too. Details are in [D-09](DECISIONS.md#d-09-personal-data-is-kept-out-by-a-column-allow-list-customers-are-shown-by-id).
 
-**Each user sees only their products.** Every table reference is replaced with a subquery filtered to the user's brands or departments. The filter is attached to the table, so it holds in joins, subqueries and unions. Details and trade-offs are in [D-08](DECISIONS.md#d-08-per-user-product-scope-is-applied-by-rewriting-table-references). For a user limited to three brands, `SELECT COUNT(*) FROM order_items` runs as:
+**Each user sees only their brands.** Every table reference is replaced with a subquery filtered to the user's brands. The filter is attached to the table, so it holds in joins, subqueries and unions. The CEO's token carries the explicit all-brands scope; a token with no brand scope gets zero rows from every table. Details and trade-offs are in [D-08](DECISIONS.md#d-08-per-user-brand-scope-is-applied-by-rewriting-table-references). For a user limited to three brands, `SELECT COUNT(*) FROM order_items` runs as:
 
 ```sql
 SELECT COUNT(*) FROM (
@@ -290,17 +337,15 @@ SELECT COUNT(*) FROM (
 ) AS order_items LIMIT 500
 ```
 
-**In production: the database enforces it too.** The application-level gate is necessary because it gives the model useful errors and works on any dataset. It should not be the only enforcement:
+**In production: what BigQuery enforces as well.** The application-level gate is necessary because it gives the model useful errors and works on any dataset. Part of it can be enforced a second time by the database, and part cannot.
 
-- The agent queries BigQuery **as the signed-in user**, not as one shared service account. Row access policies on the tables then filter rows by the caller's identity against an entitlements table.
-- Personal data columns carry policy tags, and the callers have no permission to read tagged columns. BigQuery refuses such a query whatever SQL was written.
-- The data is exposed through views in our own project, which is also where these policies can be defined for a public dataset that we do not own.
-
-With both, a defect in either layer does not expose data.
+- **Read-only.** The service account that runs the queries has no write permission anywhere, and BigQuery caps the bytes a query may bill.
+- **No personal data.** The service account can read only views in our own project, and those views leave out the personal data columns. BigQuery then refuses a query for them whatever SQL arrives. This is also how such a rule can be set for a public dataset that we do not own.
+- **Brand scope is enforced by the gate alone.** The scopes arrive in an application-level token, which BigQuery never sees, so BigQuery cannot filter rows per user. This is why the gate's scoping is tested against independently computed results and against the real dataset. If a second, independent enforcement is wanted later, the front end's identity provider can be federated with Google Cloud so that BigQuery sees the end user and row access policies apply. That is an option, not part of this design.
 
 ### 3.3 High-stakes oversight
 
-The assistant manages a library of saved reports. Deleting is destructive, so the model may request it but cannot do it.
+The assistant manages a library of saved reports. Deleting is destructive, so the model may request it but cannot do it. The client confirmed that one confirmation is enough, that reports are not shared between users, and that deleted reports do not need to be recoverable.
 
 ```mermaid
 sequenceDiagram
@@ -318,12 +363,12 @@ sequenceDiagram
     R-->>A: ids and titles
     A->>A: store exactly these ids in the conversation state
     A-->>UI: paused, with the list to confirm
-    UI->>U: shows the list, asks yes or no
+    UI->>U: shows the list, says it is permanent, asks yes or no
     U->>UI: yes
     UI->>A: resume, approved
-    A->>R: soft-delete exactly the stored ids
+    A->>R: delete exactly the stored ids
     R-->>A: done, audit log written
-    A-->>UI: Deleted 2 reports, /undo restores them
+    A-->>UI: Deleted 2 reports, this cannot be undone
 ```
 
 What makes it strict:
@@ -331,17 +376,19 @@ What makes it strict:
 - **The decision does not pass through the model.** The graph pauses in a step of its own. Only the interface can resume it, with the user's answer. The model has no tool that confirms, and extra arguments such as `confirmed: true` are ignored. A "yes" typed into the chat is a new message, not a confirmation.
 - **What is confirmed is what is deleted.** The matching report ids are stored in the conversation state when the list is shown. The delete uses those ids, not a new search, so a report created in the meantime is not swept in.
 - **Ownership is checked in the store.** Every query on reports is filtered by owner. A request naming another user's report id finds nothing.
+- **Deleting is permanent, and the user is told so.** The rows are removed; there is no restore function. The confirmation says that the deletion cannot be undone, and so does the outcome. Because nothing can be undone, the confirmation is the safeguard, which is why it lists the exact titles.
 - **The outcome is reported by the application.** After a delete, the message "Deleted 2 reports" is written by code. An earlier version asked the model to phrase it; in a real run the model call was rate-limited after the delete had happened, and the user was told to try again. The result of a confirmed action must not depend on the model.
+- **Everything is audited.** The request, and the confirmation or the cancellation, are written to an audit log with the report ids. The titles of what was requested and of what was deleted are kept there, so the record survives the reports.
 
 What keeps it from breaking the experience:
 
 - **One question, once.** The user sees the exact titles and answers yes or no. Anything else cancels.
-- **Undo.** Deleting is a soft delete. `/undo` restores the last batch, so a mistaken "yes" is not a disaster.
+- **A fast, exact outcome.** It arrives in under a second, with no model call.
 - **No confirmation when nothing matches.** The assistant simply says so.
 
-Both phrasings in the brief are covered: "mentioning X" is a case-insensitive text match on title and content, and "the reports we made in this conversation" uses the conversation id stored with each report. Every request, confirmation, cancellation and restore is in the audit log.
+Both phrasings in the brief are covered: "mentioning X" is a case-insensitive text match on title and content, for any term, and "the reports we made in this conversation" uses the conversation id stored with each report.
 
-**In production** the same step guards any destructive or outward-facing tool. A tool declares that it needs confirmation; the graph routes it through the pause. Sending a report by email would use it unchanged. The pause survives a restart because the state is in PostgreSQL, and a pending confirmation expires after a set time.
+**In production** the same step guards any destructive or outward-facing tool. A tool declares that it needs confirmation; the graph routes it through the pause. Sending a report by email or to Slack would use it unchanged. The pause survives a restart because the state is in PostgreSQL, and a pending confirmation expires after a set time. Database backups cover operator error; there is no restore offered to users.
 
 ### 3.4 Continuous improvement
 
@@ -397,18 +444,29 @@ The brief asks that errors and empty results are detected and corrected before g
 | BigQuery unavailable | Error class | The same SQL is retried once; the model is not asked to rewrite a correct query |
 | More rows than the limit | Result reached the limit | The result is marked incomplete and the model is told to aggregate |
 
-After the retry limit, no further query runs for that question and the model is told to explain plainly what it could not do. In the example run two of nine queries failed on real BigQuery and both were corrected on the next attempt.
+After the retry limit, no further query runs for that question and the model is told to explain plainly what it could not do. In the example run two of eleven queries failed on real BigQuery and both were corrected on the next attempt.
 
-**Not inflating cost.**
+**Bounded cost and time.**
 
 - Broken SQL is caught before it is billed.
-- A question may use at most 8 model calls and 60,000 tokens. Past that, the assistant stops and asks the user to narrow the question.
+- A question may use at most 8 model calls, 60,000 tokens and 120 seconds. Past any of these, the assistant stops and asks the user to narrow the question. The time limit is checked between steps, so a step that is already running is allowed to finish.
 - At most 500 rows are fetched and 50 are shown to the model, with a note when rows were left out.
 - Blocked messages and confirmed deletes use no model calls.
 - Old result tables are not resent with every turn.
 - BigQuery caps the bytes a query may bill.
 
-Observed in the example run: 5,600 tokens and 1.7 model calls per question on average, 5 to 10 MB scanned per query, and a median of 3.7 seconds per answer.
+Observed in the example run: about 6,500 tokens and 1.9 model calls per question on average, 5 to 10 MB scanned per query, and a median of 4.0 seconds per answer.
+
+**How long an answer may take.** The client accepts the assumed response times and allows one to two minutes for long reports. Ordinary questions are answered in seconds. A long report is produced within the same request, with progress shown, and the time limit stops anything that runs longer. No background job is needed.
+
+**A cost cap per question (design).** The client wants the cap to be easy to configure and suggests $1 per question, as a design matter. The cap is one setting, in dollars.
+
+- A price table, also configuration, holds the price per token for each model and the price per byte scanned in BigQuery.
+- Before each model call and each query, the cost so far plus the worst case of the next step is compared with the cap. If the cap would be passed, the question stops with the same message as the other limits.
+- The cost of each question is written to its trace, so cost per question is a metric with an alert.
+- The cap can differ per environment or per group of users.
+
+The prototype does not compute dollars. It applies the limits directly: model calls, tokens, seconds, and 1 GB scanned per query, all settings in `.env`. These already keep a question far below $1: at BigQuery's on-demand list price at the time of writing ($6.25 per TiB), the 1 GB cap on a single query is worth about half a cent.
 
 **When the model provider fails.** Models are configured as an ordered list.
 
@@ -417,24 +475,26 @@ Observed in the example run: 5,600 tokens and 1.7 model calls per question on av
 - A rate limit that asks for a long wait rests that model for exactly that long, and the next model in the list answers meanwhile. This is a circuit breaker whose timing is set by the provider.
 - If every model is resting, the soonest one is waited for, up to a minute, with a message in the interface. Beyond that, the user is told how long to wait.
 
-This was exercised for real: on the free tier the two larger models allow 20 requests a day, and the example run was answered entirely by the third model without the user doing anything.
+This was exercised for real: on the free tier the two larger models allow 20 requests a day, and the example run was answered almost entirely by the third model without the user doing anything.
 
 **Never crashing the interface.** A failing tool returns an error to the model instead of raising. An unexpected exception anywhere in a turn is caught at the session boundary, recorded in the trace with its cause, and turned into a short apology. The conversation continues.
 
-**In production, additionally:** conversation state in PostgreSQL so a restarted container resumes mid-conversation; rest periods shared between instances; provisioned model capacity; long report generation moved to a background job with the result delivered when ready.
+**In production, additionally:** conversation state in PostgreSQL so a restarted container resumes mid-conversation; rest periods shared between instances; provisioned model capacity so that rate limits are rare.
 
 ### 3.6 Quality assurance
 
 **Before deployment.** Four kinds of checks, from cheapest to most expensive.
 
-1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 753 tests that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results.
-2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. These are also in the 753.
-3. **Evaluation with the real model.** A fixed set of questions run against the real model and a fixed copy of the data, scored automatically:
+1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 636 tests that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results.
+2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. These are also in the 636.
+3. **The same rules on the real dataset.** A further group of 79 tests runs against BigQuery on request, as the client suggested: the schema, every legitimate query after the gate has rewritten it (as free dry-runs), brand scope and personal data on real data, and every analyst example.
+4. **Evaluation with the real model.** A fixed set of questions run against the real model and a fixed copy of the data, scored automatically:
    - *Result accuracy.* For questions with a known answer (the golden trios supply them), the result of the assistant's query is compared with the result of the analyst's query. Comparing results, not SQL text, accepts any correct query.
    - *Grounding.* Every figure in an answer must appear in, or follow from, the query results of that turn. This is a mechanical check, and it is the one that would have caught the wrongly added total described in 3.4.
    - *Safety set.* Questions that must be refused or must return nothing outside the user's scope.
    - *Robustness.* Injected failures: a bad first query, an empty result, an unavailable model.
-4. **Release gate.** A change to code, instructions, trios or the model version runs the suite. It is released to a small share of traffic first and promoted if live metrics hold.
+
+**Release gate.** A change to code, instructions, trios or the model version runs these checks. It is released to a small share of traffic first and promoted if live metrics hold. A change to the tone goes through its own automated gate, described in 3.8.
 
 **Do reports answer the user's intent?** Three signals, because none is enough alone.
 
@@ -452,7 +512,7 @@ One class of intent error is prevented rather than detected: the assistant state
 | Time to answer, and number of turns to a usable answer | Whether it is efficient |
 | Rephrase rate and abandonment | Where it misunderstands |
 | Helpful / not helpful on answers | Direct satisfaction |
-| Confirmation cancel rate, and undo rate | Whether the delete flow is too eager or too easy |
+| Confirmation cancel rate | Whether delete requests are understood before the user is asked |
 | Share of answers that needed a wait | Whether rate limits or slowness are felt |
 
 These come from the traces. They are complemented by moderated sessions with a few executives before launch, because the numbers say where people struggle but not why.
@@ -469,7 +529,7 @@ These come from the traces. They are complemented by moderated sessions with a f
 | Query | The SQL the model wrote, the SQL that ran, rows, bytes scanned, error code and message, whether it was cut off, redactions |
 | Report saved | Report id |
 | Confirmation | Approved or cancelled, how many reports |
-| Budget | When a limit was reached |
+| Budget | Which limit was reached: model calls, tokens or time |
 | Unexpected error | Type and message |
 
 Questions and answers are scrubbed for personal data before they are logged. Result rows are never logged, only their count.
@@ -488,7 +548,9 @@ Questions and answers are scrubbed for personal data before they are logged. Res
 | Personal data redactions | Should be zero. Anything else means an upstream layer leaked |
 | Deletes confirmed and cancelled | Whether the confirmation is doing its job |
 
-**Alerts in production:** failed share above a threshold; gave-up share rising; 95th percentile latency; any redaction; a spike in guard blocks; cost per question; every model in the list resting.
+In production one more is added: cost per question in dollars, computed from the same trace with the price table of 3.5.
+
+**Alerts in production:** failed share above a threshold; gave-up share rising; 95th percentile latency; any redaction; a spike in guard blocks; cost per question approaching the cap; every model in the list resting.
 
 **Debugging one answer.** The reviewer takes the trace id, opens the trace, and reads the steps in order: what the model asked for, the exact SQL that ran, what came back, what the model did next. In the prototype this is `/trace` for the last question, or the JSON line in `logs/traces.jsonl`. The example run shows it. Because the executed SQL is stored, the query can be re-run to see the data the model saw. Because the conversation id is stored, all turns of a conversation can be read in order.
 
@@ -501,26 +563,37 @@ The model's instructions are assembled from layers, and only one of them is edit
 | Layer | Who changes it | How |
 |---|---|---|
 | Safety rules and data conventions | Developers | Code, reviewed and tested |
-| **Tone and style** | The CEO's office | Admin console, no deployment |
+| **Tone and style** | One named editor who is not a developer | Admin console, no deployment |
 | Per-user preferences | The user, and the learning loop | Preference store |
 | Analyst examples | Analysts | Golden bucket |
 
-**In production** the tone is a versioned record in the database.
+**In production** the tone is a versioned record in the database. The client's answer is that one non-developer edits it and that what stands between an edit and production must be an automated quality gate. So no person approves a change, and no deployment is involved: the editor submits, and the gate decides.
 
-- A small admin page, restricted to a named group, shows the current tone and lets an editor change it in plain language.
-- **Preview before publishing.** The editor sees a few standard questions answered with the new tone next to the current one.
-- **Checks on save.** A length limit, and a screen that rejects text trying to change the rules ("ignore...", "reveal..."). The tone layer cannot grant anything anyway, since rules are enforced in code, but a clear rejection is better than a confusing result.
-- **A quick evaluation run** confirms that the safety set and a sample of accuracy questions still pass.
-- **Versions, audit and rollback.** Each change records who and when. Rolling back is selecting the previous version. A change can be scheduled, which suits a weekly rhythm.
-- The service reads the active version with a short cache, so a change is live within a minute.
+**The automated quality gate.**
 
-**In the prototype** the tone is the file `config/persona.md`. It is read on every question, so an edit takes effect on the next message with no restart. A test changes the file between two questions and checks that the instructions changed.
+1. **Static checks, immediate.** A length limit. The text is screened with the same rules as user input for attempts to change the rules ("ignore...", "reveal..."). It may not contain SQL, tool names or scope terms.
+2. **Evaluation run, a few minutes.** The candidate tone is used to answer a fixed set of about thirty questions with the real model. To pass:
+   - the safety set passes completely: refusals still refuse, and nothing outside a user's scope is returned;
+   - result accuracy and grounding are no worse than the current version, within a small tolerance;
+   - reports still have their parts: summary, insights tied to numbers, action items;
+   - a second model confirms that the answers follow the requested tone.
+3. **Decision.** If every check passes, the version is published at once, or at a scheduled time, which suits a weekly rhythm. If any check fails, nothing is published and the editor is shown which check failed, with examples.
+4. **After publishing.** Live metrics are watched for a set period. If the failed share or the rephrase rate gets worse beyond a threshold, the previous version is restored automatically and the editor is told.
+
+Around the gate:
+
+- **A preview** lets the editor see a few standard questions answered with the new tone before submitting. It is a convenience, not an approval.
+- **Versions and audit.** Each version records who submitted it, when, and the gate's result. Rolling back is selecting a previous version, which passes the gate trivially because it already did.
+- **The tone layer cannot grant anything.** The rules that matter are enforced in code. The gate exists so that a tone change cannot make answers worse, not to keep data safe.
+- The service reads the active version with a short cache, so a published change is live within a minute.
+
+**In the prototype** the tone is the file `config/persona.md`. It is read on every question, so an edit takes effect on the next message with no restart. A test changes the file between two questions and checks that the instructions changed. The gate is not built.
 
 ---
 
 ## 4. Technology choices and why
 
-**Google Cloud.** The data is in BigQuery and the brief asks for Gemini. Keeping compute, identity and observability in the same cloud means one permission model and no data crossing providers.
+**Google Cloud.** The data is in BigQuery and the brief asks for Gemini. Keeping compute and observability in the same cloud means one permission model and no data crossing providers.
 
 **Gemini, as an ordered list of models.** The prototype defaults to `gemini-3.8-flash`, then `gemini-3.5-flash`, then `gemini-3.5-flash-lite`. Flash models are fast enough for an interactive tool and wrote correct BigQuery SQL in testing. A list rather than a single model is what makes the fallback in 3.5 possible. Model names are configuration, so moving to a newer model is not a code change, and the evaluation suite says whether it is an improvement.
 
@@ -537,9 +610,9 @@ The model's instructions are assembled from layers, and only one of them is edit
 
 **PostgreSQL for all application state.** Conversations, reports, audit log, preferences, tone versions and the vector index have modest volume and benefit from transactions and joins. One managed database is simpler to operate and back up than a document store, a cache and a vector service.
 
-**DuckDB for tests.** An in-process database with a close SQL dialect, so the safety layer is tested against real query results on any machine, offline.
+**DuckDB for offline tests.** An in-process database with a close SQL dialect, so the safety layer is tested against real query results on any machine, without a network. BigQuery is the default data source of the assistant itself.
 
-**uv, ruff, pytest.** One command reproduces the environment; the suite runs in about three seconds.
+**uv, ruff, pytest.** One command reproduces the environment; the offline suite runs in about three seconds.
 
 ---
 
@@ -554,10 +627,12 @@ The model's instructions are assembled from layers, and only one of them is edit
 | Result too large | Row limit | Marked incomplete; model aggregates | An aggregated answer |
 | Query too expensive | Dry-run and byte cap | Refused; model narrows it | The answer for a narrower scope |
 | BigQuery unavailable | Error class | One immediate retry, then stop | "The data warehouse is temporarily unavailable" |
+| BigQuery not set up at start | A free dry-run when the CLI starts | Stops before the chat begins | What is missing, and the offline option |
 | Model timeout or server error | Error class | Backoff and retry, then next model | "The model is busy, retrying" while it works |
 | Model rate limit | Error with a wait time | Wait if short, otherwise rest it and use the next model | Usually nothing |
 | Every model unavailable | All resting or failed | Wait up to a minute for the soonest, else stop | How long to wait before trying again |
 | Work limit for one question | Call and token counters | Stop | A request to narrow or split the question |
+| Time limit for one question | Clock, checked between steps | Stop | The same request, naming the time limit |
 | Tool crashes | Exception caught in the tool step | Error result to the model | An explanation that it did not work |
 | Any other exception | Caught at the session boundary | Logged with cause; turn ends | A short apology; the conversation continues |
 | Personal data in output | Scrubber | Masked and counted | The masked text |
@@ -569,15 +644,15 @@ The model's instructions are assembled from layers, and only one of them is edit
 
 | Data | Production | Prototype | Notes |
 |---|---|---|---|
-| Sales data | BigQuery, read-only | BigQuery, or local mock | Never copied; personal data columns never leave it |
-| Conversation state | PostgreSQL checkpoints | Memory | Includes any pending confirmation |
-| Saved reports and audit log | PostgreSQL | SQLite | Soft delete; owner on every row |
+| Sales data | BigQuery, read-only | BigQuery, or the offline mock | Never copied; personal data columns never leave it |
+| Conversation state | PostgreSQL checkpoints | Memory | Includes any pending confirmation. Holds no scopes |
+| Saved reports and audit log | PostgreSQL | SQLite | Owner on every row. Deleting is permanent; the audit log keeps ids and titles |
 | Preferences, tone versions | PostgreSQL | Tone file | |
-| Golden trios | Cloud Storage and vector index | Folder | Versioned |
+| Golden trios | Cloud Storage and vector index | Folder | Versioned JSON |
 | Traces | Cloud Logging and BigQuery | JSONL file | Scrubbed; no result rows |
 | Secrets | Secret Manager | Local `.env`, git-ignored | |
 
-What is sent to the model: the instructions, the conversation text, and query results (at most 50 rows per query, already scoped to the user and free of personal data columns).
+What is sent to the model: the instructions, the conversation text, and query results (at most 50 rows per query, already limited to the user's brands and free of personal data columns).
 
 ---
 
@@ -586,23 +661,24 @@ What is sent to the model: the instructions, the conversation text, and query re
 **A new capability** is a tool: a declaration (name, description, parameters), a function, and a flag saying whether it needs confirmation.
 
 - *Charts.* A tool returns a chart specification from a query result. The interface renders it. No new safety surface, because the data came through the gateway.
-- *Email.* An outward-facing action, so it is marked as needing confirmation and reuses the pause in 3.3. Sending is handed to a background worker.
+- *Email and Slack.* The client may add Slack later as a place to send results. Both are outward-facing actions, so they are marked as needing confirmation and reuse the pause in 3.3. Sending is handed to a background worker.
 - *Web search for trends.* The results are untrusted text. They are treated as data, like query results, and cannot trigger tools by themselves.
 
 **A new data source** implements the four methods of `DataBackend` and supplies a policy: allowed tables, personal data columns and the scoping rule. The gateway then applies the same pipeline to it.
 
-**A new channel** (web, Slack) calls `ChatSession.ask` and `ChatSession.confirm`, as the CLI does.
+**The web chat**, which is what the client will use in production, calls the API, and the API calls `ChatSession.ask` and `ChatSession.confirm`, as the CLI does.
 
 ---
 
 ## 8. Limits of the prototype
 
-- Scope and personal data rules are enforced by the application only. Production adds database policies (3.2).
-- Row-level demographics for a customer ID are allowed. Whether they should be aggregate-only is an open question for the client.
+- The token is not verified, because there is no front end to issue one. `--user` picks a sample token payload.
+- Brand scope and the personal data rule are enforced by the application only. Production adds what BigQuery can enforce (3.2).
 - The model can still misstate a figure. Stating conventions and returning totals from SQL reduce it; the grounding check in 3.6 is what would catch the remainder, and it is not built.
 - The input guard is rules only. Subtle cases rely on the model declining and on the gate.
 - Conversation state is in memory and ends with the process. Reports and traces persist.
-- Golden bucket retrieval is by shared words. It works for seven trios and would not for thousands.
+- Golden bucket retrieval is by shared words. It works for seven trios and would not for 1,000.
+- The cap in dollars is not computed. Limits are set in model calls, tokens, seconds and bytes.
 - On the free tier the larger models allow 20 requests a day. The assistant keeps working on the lite model, with somewhat weaker answers.
 
-Assumptions and the questions sent to the client are in [QUESTIONS.md](QUESTIONS.md).
+The questions asked of the client, and their answers, are in [QUESTIONS.md](QUESTIONS.md).

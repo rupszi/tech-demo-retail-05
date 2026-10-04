@@ -1,7 +1,7 @@
 # Delivery plan
 
 Project: data analysis chat agent for a retail company's non-technical executives (client: OpsFleet).
-Last updated: 2026-10-04. Progress is tracked in [TRACKER.md](TRACKER.md); the reasoning behind each decision is in [DECISIONS.md](DECISIONS.md).
+Last updated: 2026-10-04. Sections 1 to 8 are the original delivery; section 9 is the revision made after the client answered our questions, and where the two differ, section 9 and the current code are right. Progress is tracked in [TRACKER.md](TRACKER.md); the reasoning behind each decision is in [DECISIONS.md](DECISIONS.md).
 
 ## 1. Understanding of the brief
 
@@ -19,37 +19,37 @@ Assessment focus: system design, the technical explanation, and an elegant proto
 | # | Requirement | Prototype | Design doc |
 |---|---|:-:|:-:|
 | 1 | Hybrid intelligence (Golden Bucket) | sample trios in a local folder (confirmed by the client) | yes |
-| 2 | Safety and PII masking, per-user product scope | **yes** | yes |
+| 2 | Safety and PII masking, per-user brand scope | **yes** | yes |
 | 3 | High-stakes oversight (destructive ops) | **yes** | yes |
 | 4 | Continuous improvement (user and system loops) | no | yes |
 | 5 | Resilience and graceful error handling | **yes** | yes |
-| 6 | Quality assurance | 753 automated tests | yes |
+| 6 | Quality assurance | 636 offline tests and 79 against BigQuery | yes |
 | 7 | Observability | **yes** | yes |
 | 8 | Agility (persona management) | tone file read on every question | yes |
 
 ### Points that need deliberate handling
 
 - **PII lives in `users`**: names, email, street address, coordinates. "Top customers" must still work, so customers are shown by pseudonymous `user_id`.
-- **"Each user only analyses products related to him"** is an authorization rule. It is enforced in code on the SQL, never by prompt instructions.
-- **Destructive actions** (deleting saved reports) cannot be confirmed by the model. Confirmation is a deterministic step outside the model's control.
+- **"Each user only analyses products related to him"** is an authorization rule. It is enforced in code on the SQL, never by prompt instructions. The client confirmed that it means the user's brands.
+- **Destructive actions** (deleting saved reports) cannot be confirmed by the model. Confirmation is a deterministic step outside the model's control. Deleting is permanent.
 - **Resilience without inflating cost**: self-correction is bounded, dry-runs catch SQL errors before they cost anything, and every turn has a budget.
 - **The Golden Bucket is theoretical**: the prototype uses a small local folder of example trios standing in for the bucket.
 
-## 2. Assumptions (to confirm with the client)
+## 2. Assumptions, and what the client said
 
-The questions sent to the client, with the full assumption for each, are in [QUESTIONS.md](QUESTIONS.md). The table below is the summary. None of these blocks the work.
+These were the assumptions the work started from. The client answered all of them on 2026-10-04; the full questions and answers are in [QUESTIONS.md](QUESTIONS.md), and the changes that followed are in section 9.
 
-| Topic | Assumption used |
-|---|---|
-| Identity | SSO/OIDC at the gateway in production; the prototype uses mock user profiles (`--user`) |
-| Scale | Tens to hundreds of executives, low request rate |
-| Saved Reports store | Does not exist yet, so we build one (SQLite locally, managed database in production) |
-| "Products related to him" | Each user has an allowed set of brands and/or departments |
-| PII display | Pseudonymous `user_id` and aggregated demographics may be shown; names, emails, addresses, coordinates never |
-| Report deletion | One explicit confirmation listing exactly what will be deleted; soft delete with undo; own reports only |
-| Golden Bucket | One JSON document per trio; analyst approval before anything is added; a few local sample trios in the prototype |
-| Email | Design only, behind a tool interface; provider not chosen |
-| Data residency | Single region matching the public dataset (`US`) |
+| Topic | Assumption used | Client's answer |
+|---|---|---|
+| Identity | Single sign-on and a permissions service in production; mock profiles in the prototype | The front end sends a JWT with the user's scopes |
+| Scale | Tens to hundreds of executives, low request rate | Confirmed; long reports may take one to two minutes |
+| Saved Reports store | Does not exist yet, so we build one | Confirmed: ours to design |
+| "Products related to him" | Each user has an allowed set of brands and/or departments | Brands only; the CEO sees all |
+| PII display | Customer IDs and demographics may be shown; names, emails, addresses, postal codes, coordinates never | Confirmed, including demographics for an individual |
+| Report deletion | One confirmation listing exactly what will be deleted; soft delete with undo; own reports only | One confirmation and own reports confirmed; no recovery needed, so deleting is permanent |
+| Golden Bucket | One JSON document per trio; analyst approval; a few local sample trios in the prototype | Confirmed: JSON, about 1,000 trios, a local folder in the prototype |
+| Email | Design only, behind a tool interface | Web chat over an API; Slack outputs maybe later |
+| Data residency | Single region matching the public dataset | No compliance requirements |
 
 ## 3. Deliverables
 
@@ -64,16 +64,18 @@ The questions sent to the client, with the full assumption for each, are in [QUE
 
 ## 4. Approach
 
-This section describes what was built. Where it differs from the first plan, section 7 says why.
+This section describes what is built today, including the revision in section 9. Sections 7 and 9 say where it departed from the first plan and why.
 
 - **Framework**: LangGraph, because its interrupt and checkpoint model fits the confirmation flow and gives step-level tracing. **Model**: Gemini through the `google-genai` SDK, configured as an ordered list of models; the first one that is available answers.
 - **Flow**: `guard -> agent <-> tools`, plus a `confirm_delete` step. One agent loop with five tools handles questions about the data's structure, single and multi-step analysis, reports and report management.
-- **Data backends**: one `DataBackend` interface with a DuckDB implementation (mock data mirroring the four tables) and a BigQuery implementation. Everything is developed and tested offline; the same code runs against BigQuery. Tables resolve only by fully qualified name on both.
-- **Safety**: SQL parsed with `sqlglot`; a single query only, table and column allow-lists, a forced `LIMIT`, per-user scoping applied to the parsed query, and an output scrubber as a second layer. The agent reaches data only through a `QueryGateway` that applies all of it.
-- **Delete flow**: find the user's own matching reports, store their ids in the conversation state, pause for the user's answer, soft-delete exactly those ids, report the outcome from code. Undo and an audit log.
-- **Resilience**: bounded self-correction with errors classified by whether a retry can help; retries with backoff and jitter; a rate-limited model is rested and the next one answers; a budget per question; nothing crashes the interface.
+- **Data backends**: one `DataBackend` interface with a BigQuery implementation, which is the default, and a DuckDB implementation over mock data for offline tests and trials. Tables resolve only by fully qualified name on both.
+- **Identity**: a user's profile is built from token claims; the prototype reads sample token payloads. Brand is the only scope, the all-brands grant is explicit, and no brand scope means no access.
+- **Safety**: SQL parsed with `sqlglot`; a single query only, table and column allow-lists, a forced `LIMIT`, brand scoping applied to the parsed query, and an output scrubber as a second layer. The agent reaches data only through a `QueryGateway` that applies all of it.
+- **Delete flow**: find the user's own matching reports, store their ids in the conversation state, pause for the user's answer, permanently delete exactly those ids, report the outcome from code. An audit log keeps the ids and titles.
+- **Resilience**: bounded self-correction with errors classified by whether a retry can help; retries with backoff and jitter; a rate-limited model is rested and the next one answers; limits per question on model calls, tokens and time; nothing crashes the interface.
 - **Observability**: one structured trace per question (JSONL), with the metrics computed from the same file; `/trace` and `/stats`.
 - **Golden bucket**: a local folder of analyst examples, retrieved by similarity to the question and added to the model's instructions.
+- **Tests**: an offline suite, and an opt-in group that checks the same rules on the real BigQuery dataset.
 - **Extensibility**: a new capability is a tool; a new data source is a `DataBackend` with a policy; a new channel calls `ChatSession`.
 
 ### Layout
@@ -83,13 +85,13 @@ src/retail_agent/
   config.py          settings from the environment
   agent/             conversation graph, tools, instructions, session
   safety/            policy, profiles, SQL gate, scoping, gateway, PII scrubber, input guard
-  data/              DataBackend interface, DuckDB and BigQuery, schema, mock data
+  data/              DataBackend interface, BigQuery and DuckDB, schema, mock data
   llm/               model interface, Gemini adapter, retry and fallback
-  reports/           saved reports with soft delete, undo and audit log
+  reports/           saved reports with permanent delete and an audit log
   observability/     traces and metrics
   golden/            retrieval of analyst examples
   cli/               chat interface
-config/              user profiles (one file per data backend) and the tone file
+config/              sample token payloads (one file per data backend) and the tone file
 golden_bucket/       sample analyst examples
 tests/
 docs/
@@ -152,7 +154,7 @@ Project metadata, dependencies, `.env.example`, folder layout, test and lint too
 - [x] The confirmed ID set is exactly the previewed ID set
 - [x] A user cannot delete another user's reports
 - [x] Confirmation is not reachable by any tool the model can call
-- [x] Undo restores soft-deleted reports; every step lands in the audit log
+- [x] Undo restores soft-deleted reports; every step lands in the audit log (superseded by phase 12: deleting is now permanent, and there is no undo)
 
 ### Phase 6: Observability
 - [x] Every turn produces a trace with trace ID, per-step latency, tokens, SQL, retries and guard hits

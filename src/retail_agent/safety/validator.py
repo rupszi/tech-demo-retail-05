@@ -178,7 +178,7 @@ def _reject_pii_columns(tree: exp.Expression) -> None:
         raise SqlRejected(
             "pii_column",
             f"Personal data columns cannot be used: {', '.join(used)}. "
-            "Identify customers by id and use only aggregated demographics.",
+            "Identify customers by id. Age, gender, city, state and country may be used.",
             True,
         )
 

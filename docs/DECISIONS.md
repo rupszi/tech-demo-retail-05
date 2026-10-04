@@ -2,7 +2,7 @@
 
 This document records the decisions made while building the project, in the order they were made, with the reasoning behind each one. It is written for a reader who was not in the room: every entry says what the situation was, what was decided, what else was considered, what it costs, and how it is checked.
 
-It is updated in the same commit as the work it describes. If a decision looks wrong or a reason is unclear, please ask or challenge it: each entry names the code and tests that implement it, so a question can be answered by pointing at something concrete. Questions that only the client can answer are in [QUESTIONS.md](QUESTIONS.md), with the assumption used for each.
+It is updated with the work it describes. On 2026-10-04 the client answered our questions ([QUESTIONS.md](QUESTIONS.md)); entries that changed because of an answer say so. If a decision looks wrong or a reason is unclear, please ask or challenge it: each entry names the code and tests that implement it, so a question can be answered by pointing at something concrete. Questions that only the client can answer are in [QUESTIONS.md](QUESTIONS.md), with the assumption used for each.
 
 Related documents: [DESIGN.md](DESIGN.md) (how the system works), [PLAN.md](PLAN.md) (scope, phases, exit gates), [TRACKER.md](TRACKER.md) (progress).
 
@@ -10,34 +10,35 @@ Related documents: [DESIGN.md](DESIGN.md) (how the system works), [PLAN.md](PLAN
 
 | ID | Decision | Status |
 |---|---|---|
-| D-01 | One data interface, two engines: DuckDB locally, BigQuery for real | Implemented |
+| D-01 | One data interface, two engines: BigQuery for real, DuckDB for offline tests | Implemented |
 | D-02 | The table schema lives in code and is verified against the live dataset | Implemented |
 | D-03 | Mock data is fictional, deterministic, and contains planted patterns | Implemented |
 | D-04 | Data errors are classified by whether a retry can help | Implemented |
 | D-05 | Every BigQuery query is dry-run first and capped in cost | Implemented |
 | D-06 | Safety is enforced in code on the parsed SQL, not in the prompt | Implemented |
 | D-07 | Only SQL regenerated from the syntax tree is executed | Implemented |
-| D-08 | Per-user product scope is applied by rewriting table references | Implemented |
-| D-09 | Personal data is kept out by a column allow-list; customers are shown by ID | Implemented |
+| D-08 | Per-user brand scope is applied by rewriting table references | Implemented; scope confirmed by the client |
+| D-09 | Personal data is kept out by a column allow-list; customers are shown by ID | Implemented; confirmed by the client |
 | D-10 | Tables can only be reached by fully qualified name | Implemented |
 | D-11 | Namespaced functions are denied by default | Implemented |
 | D-12 | Results are row-limited and say when they were cut | Implemented |
 | D-13 | Output is scrubbed for personal data as a second layer | Implemented |
 | D-14 | A cheap rule-based guard runs before any model call | Implemented |
 | D-15 | The agent reaches data only through one gateway object | Implemented |
-| D-16 | User profiles are files, one per data backend | Implemented |
+| D-16 | A user's profile is built from token claims, and access is denied by default | Implemented; changed after the client's answer |
 | D-17 | LangGraph for orchestration, Gemini through the `google-genai` SDK | Implemented |
 | D-18 | Tooling: `uv`, Python 3.12, `ruff`, `pytest` | Implemented |
 | D-19 | Secrets stay in a local `.env`; nothing sensitive is committed | Implemented |
 | D-20 | One agent loop with tools, not a fixed pipeline | Implemented |
 | D-21 | Self-correction has a budget, and not every failure earns a retry | Implemented |
 | D-22 | Models are an ordered list; a rate-limited model is rested | Implemented |
-| D-23 | A delete is prepared by the model, decided by the user and reported by the application | Implemented |
+| D-23 | A delete is prepared by the model, decided by the user, permanent, and reported by the application | Implemented; changed after the client's answer |
 | D-24 | Earlier result tables are not resent to the model | Implemented |
 | D-25 | Date and revenue conventions are written down, and totals come from SQL | Implemented |
 | D-26 | The Golden bucket is a folder in the prototype | Implemented, confirmed by the client |
 | D-27 | Traces are one JSON line per question; metrics are computed from them | Implemented |
 | D-28 | What was deliberately left out of the prototype | Decided |
+| D-29 | BigQuery is the default data source, and has its own test group | Implemented; follows the client's suggestion |
 
 ---
 
@@ -49,7 +50,7 @@ Related documents: [DESIGN.md](DESIGN.md) (how the system works), [PLAN.md](PLAN
 
 **Decision.** All data access goes through one small interface, `DataBackend` (`list_tables`, `get_schema`, `dry_run`, `execute`). There are two implementations: `DuckDBBackend` over a local mock database, and `BigQueryBackend` over the real dataset. The agent writes BigQuery SQL in both cases; the DuckDB backend translates it with `sqlglot`.
 
-**Why.** The whole safety layer, the delete flow and the tracing can be developed and tested offline in about two seconds. BigQuery becomes a configuration switch (`DATA_BACKEND=bigquery`) rather than a rewrite. The same interface is also the extension point the brief asks for: a new data source is a new class.
+**Why.** The whole safety layer, the delete flow and the tracing can be developed and tested offline in about three seconds. The assistant itself runs on BigQuery by default; `--backend duckdb` switches it to the mock (D-29). The same interface is also the extension point the brief asks for: a new data source is a new class.
 
 **Considered instead.** Mocking the BigQuery client in tests: this checks that we call the client, not that queries return the right rows. The BigQuery emulator: an extra service to install and not fully compatible. SQLite: weaker SQL dialect and worse translation from BigQuery syntax than DuckDB.
 
@@ -130,7 +131,7 @@ The brief has three safety requirements: only analysis questions, no personal da
 
 **Considered instead.** Checking the SQL text with regular expressions: easy to bypass with comments, casing, quoting or nesting. Relying only on database permissions: necessary in production (see "Known limits"), but the brief's public dataset cannot be given row-level policies, and permissions alone give the model no useful feedback.
 
-**Where.** `safety/validator.py`. Tests: `tests/test_sql_gate.py` with the corpora in `tests/sql_cases.py`: 73 hostile queries are all rejected and 24 legitimate analytical queries all pass, for each of the four user profiles.
+**Where.** `safety/validator.py`. Tests: `tests/test_sql_gate.py` with the corpora in `tests/sql_cases.py`: 73 hostile queries are all rejected and 24 legitimate analytical queries all pass, for each of the three user profiles.
 
 ### D-07. Only SQL regenerated from the syntax tree is executed
 
@@ -140,18 +141,18 @@ The brief has three safety requirements: only analysis questions, no personal da
 
 **Where.** Last line of `validate_query`. Test: `test_comments_and_hidden_text_do_not_survive`.
 
-### D-08. Per-user product scope is applied by rewriting table references
+### D-08. Per-user brand scope is applied by rewriting table references
 
-**Situation.** "Each user should only be able to analyse data on products related to him." The data model has no ownership column, so "related" has to be defined. The working assumption (to confirm with the client) is that each user has a list of allowed brands and/or departments.
+**Situation.** "Each user should only be able to analyse data on products related to him." The data model has no ownership column, so "related" had to be defined. The client's answer: each user sees only the brands related to them, and the CEO sees all.
 
 **Decision.** Every reference to a real table in the query is replaced by a subquery that only contains what the user may see:
 
 | Table | What the user sees |
 |---|---|
-| `products` | Products of their brands/departments |
-| `order_items` | Items whose product is in scope |
-| `orders` | Orders containing at least one in-scope item |
-| `users` | Customers who bought at least one in-scope product, without personal data columns |
+| `products` | Products of their brands |
+| `order_items` | Items whose product is one of their brands |
+| `orders` | Orders containing at least one such item |
+| `users` | Customers who bought at least one such product, without personal data columns |
 
 For example, when a user limited to three brands writes `SELECT COUNT(*) FROM order_items`, the query that runs is:
 
@@ -167,11 +168,13 @@ SELECT COUNT(*) FROM (
 
 **Why.** The filter is attached to the table itself, so it applies wherever the table is used: in joins, subqueries, unions, `WITH` clauses, or behind an alias. There is nothing for the model to remember and nothing a user can negotiate away. The model writes ordinary SQL and does not need to know the filter exists.
 
-**Considered instead.** Asking the model to add `WHERE brand IN (...)`: unenforceable. Appending a `WHERE` clause to the outer query: wrong for queries with subqueries or joins, and easy to escape with `OR TRUE`. Database row-level security: the right second layer in production, but not possible on a public dataset we do not own.
+**Considered instead.** Asking the model to add `WHERE brand IN (...)`: unenforceable. Appending a `WHERE` clause to the outer query: wrong for queries with subqueries or joins, and easy to escape with `OR TRUE`. Row policies in BigQuery: these need BigQuery to know who the end user is, and the scopes arrive in an application-level token that BigQuery never sees (D-16).
 
-**Trade-offs to be aware of.** An order that mixes in-scope and out-of-scope products is visible, and its `num_of_item` counts all its items; revenue is always computed from `order_items`, which is fully scoped. A user with no restrictions (for example the CEO profile) gets the tables unfiltered, but `users` is still stripped of personal data.
+**What changed after the client's answer.** The first version could also scope by department, and had a demo user for it. Nobody asked for that, so it was removed: brand is the only scope.
 
-**Where.** `safety/scoping.py`. Tests: `tests/test_scoping.py` compares what each user receives with the expected rows computed independently in pandas, and runs 18 queries written specifically to escape the scope; none returns a product outside it. A separate test confirms the scopes differ, so the comparison cannot pass by accident.
+**Trade-offs to be aware of.** An order that mixes a user's brands with other brands is visible, and its `num_of_item` counts all its items; revenue is always computed from `order_items`, which is fully scoped. The client was asked about this and did not comment, so it stands. A user with the all-brands grant gets the tables unfiltered, but `users` is still stripped of personal data.
+
+**Where.** `safety/scoping.py`. Tests: `tests/test_scoping.py` compares what each user receives with the expected rows computed independently in pandas, and runs 18 queries written specifically to escape the scope; none returns a product outside it. A separate test confirms the scopes differ, so the comparison cannot pass by accident. The BigQuery test group repeats the check on the real dataset.
 
 ### D-09. Personal data is kept out by a column allow-list; customers are shown by ID
 
@@ -184,7 +187,7 @@ There are two mechanisms, and it matters which one is the guarantee:
 
 **Why an allow-list of columns rather than masking values.** Masking (showing `m***@example.com`) still returns something derived from the personal value and has to be right for every function that could touch it. Not selecting the column at all has no such edge cases. The brief's required capability "top customers" still works, with customers shown as IDs.
 
-**Open point for the client.** `postal_code` is treated as personal data because, combined with age and gender, it can identify a person. Row-level demographics (one row per customer ID with age, gender and city) are currently allowed. If the client wants demographics only in aggregate, the production answer is a minimum group size (see "Known limits").
+**Confirmed by the client.** The list of personal data is theirs: names, email, address, postal code, coordinates. Identifying customers by ID is fine. Showing age, gender, city, state and country for an individual customer is fine, so no minimum group size is needed.
 
 **Where.** `safety/policy.py`. Tests: every personal data column is tried through four access paths; whole-row tricks are run against the mock data and the output is searched for real email addresses, street addresses and coordinates.
 
@@ -257,11 +260,24 @@ A second variant used a `WITH` name defined later in the same clause. A third we
 
 **Where.** `safety/gateway.py`.
 
-### D-16. User profiles are files, one per data backend
+### D-16. A user's profile is built from token claims, and access is denied by default
 
-**Decision.** Who the user is and what they may see comes from `config/users.<backend>.json`. Four demo users cover the cases: two restricted to different brands, one restricted to a department, one unrestricted.
+**Situation.** The first version looked a user up in a file and treated a missing list of brands as "no restriction". The client then said that the front end sends a JWT with the user's scopes.
 
-**Why.** In production, identity comes from single sign-on and permissions from an entitlements service; a file is the simplest stand-in with the same shape. There are two files because the mock data uses invented brands and the real dataset has real ones.
+**Decision.** `UserProfile.from_claims` builds the profile from the claims of a verified token: `sub`, `name` and a `scopes` list with entries such as `brand:Levi's`.
+
+- Seeing every brand takes the explicit scope `brand:*`, which is what the CEO's token carries.
+- A token with no brand scope describes a user who may see nothing.
+- Scopes of any other kind are ignored, so a token issued for something else grants nothing here.
+- A token without a subject, or whose scopes are not a list of strings, is rejected.
+
+**Why denied by default.** With scopes arriving in a token, "missing means everything" would turn a malformed or incomplete token into full access. Making the wide grant explicit means every mistake fails closed.
+
+**The claim format is our assumption.** The client specified a JWT with scopes, not its layout. A `scopes` list of `kind:value` strings is a common shape and keeps brand names with spaces intact; the mapping is one function if the real token differs.
+
+**In the prototype.** There is no front end to issue a token, so the files `config/users.<backend>.json` hold sample token payloads and `--user` picks one. Three users cover the cases: two with different brands, and the CEO. There are two files because the mock data uses invented brands and the real dataset has real ones. The signature check belongs to the API and is described in the design; the mapping from claims to access is real and tested.
+
+**Where.** `safety/profiles.py`. Tests: `tests/test_profiles.py`, and `test_a_user_with_no_brand_scope_sees_nothing` in `tests/test_scoping.py`.
 
 ---
 
@@ -321,13 +337,15 @@ These decisions were made while building and running the agent. Several of them 
 | A write statement, several statements, a forbidden function | No retry |
 | Empty result | A hint to check filter values, once; then stop |
 | The database is unavailable | The same SQL is retried once by the application; the model is not asked to rewrite it |
-| 8 model calls or 60,000 tokens used on one question | Stop and ask the user to narrow the question |
+| 8 model calls, 60,000 tokens or 120 seconds used on one question | Stop and ask the user to narrow the question |
 
 **Why.** The brief asks for self-correction "before giving up" and "without inflating costs". Those pull in opposite directions, and a fixed budget is the honest way to satisfy both. The distinctions matter because the wrong response wastes money: rewriting a correct query when the database is down, or giving a second chance to a `DROP TABLE`.
 
 **Why errors are cheap.** A parse error is caught by the SQL gate without touching BigQuery. A semantic error is caught by BigQuery's dry-run, which is free. Only valid queries are billed.
 
-**Observed.** In the recorded sessions two of nine queries failed (wrong apostrophe escaping, and a date function BigQuery does not support). Both were corrected on the next attempt, and neither was billed.
+**The time limit.** The client accepts one to two minutes for long reports. Counting model calls and tokens does not bound time, because a rate-limited call can wait: one recorded question took 76 seconds for that reason. So a question also has a time limit, `TURN_TIME_BUDGET_SECONDS`, 120 by default. It is checked between steps; a step that is already running is allowed to finish.
+
+**Observed.** In the recorded sessions two of eleven queries failed, both on a date function that BigQuery does not support for timestamps. Both were corrected on the next attempt, and neither was billed. Earlier runs also showed wrong apostrophe escaping, corrected the same way.
 
 **Where.** `Toolbox.run_sql` in `agent/tools.py`. Tests: the "self-correction and its limits" group in `tests/test_agent.py`.
 
@@ -344,28 +362,29 @@ These decisions were made while building and running the agent. Several of them 
 
 **Why.** This keeps the assistant usable through the failure a reviewer on the free tier is most likely to meet, and it is also the right behaviour in production: it is a circuit breaker whose timing comes from the provider instead of a guess. A general-purpose circuit breaker shared between instances is described in the design and not built, because a single-user CLI has nothing to share.
 
-**Observed.** The recorded sessions were answered entirely by the third model in the list, with no action from the user.
+**Observed.** The recorded sessions were answered almost entirely by the third model in the list, with no action from the user.
 
 **Where.** `llm/resilient.py`. Tests: `tests/test_llm.py`, with a fake clock so no test waits.
 
-### D-23. A delete is prepared by the model, decided by the user and reported by the application
+### D-23. A delete is prepared by the model, decided by the user, permanent, and reported by the application
 
 **Decision.** The model can call `delete_reports` with a description of what to delete. That call deletes nothing. The graph:
 
 1. finds the matching reports that belong to this user;
 2. stores their ids in the conversation state;
-3. pauses in a separate step and hands the list to the interface;
-4. on "yes", soft-deletes exactly the stored ids; on anything else, deletes nothing;
+3. pauses in a separate step and hands the list to the interface, which says that the deletion is permanent;
+4. on "yes", deletes exactly the stored ids for good; on anything else, deletes nothing;
 5. writes the outcome message itself and ends the turn.
 
 **Why each part.**
 
 - *The pause is a step of its own.* When the graph resumes, only that step runs again, and it reads the ids from the saved state. So the set that is deleted is the set that was shown, even if more matching reports appeared meanwhile.
 - *The model cannot confirm.* The decision arrives through `ChatSession.confirm`, which only the interface calls. There is no tool for it, and a "yes" typed into the chat is an ordinary message that cancels the pending request.
-- *Soft delete and undo.* This is what "without breaking UX" needs: one clear question, and a mistake that can be reversed with `/undo`.
+- *Deleting is permanent.* The first version was a soft delete with an `/undo` command. The client then said that deleted reports do not need to be recoverable, so the restore function, the command and the extra columns were removed. This also makes the confirmation mean what it says: the brief calls the action destructive, and now it is. The confirmation and the outcome both state that it cannot be undone.
+- *The audit log outlives the reports.* The request, and the confirmation or the cancellation, are recorded with the report ids, and the titles of what was requested and of what was deleted are kept. Report ids are never reused, so an id in the log cannot come to mean a different report.
 - *The application reports the outcome.* The first version returned the result to the model and let it write the reply. In a recorded run the delete succeeded, the following model call hit a rate limit, and the user was told to "try again" with no word on whether anything had been deleted. The outcome of a confirmed action is now a fixed message from code. It is also faster and costs no model call.
 
-**Where.** `tools` and `confirm_delete` in `agent/graph.py`; `reports/store.py`. Tests: `tests/test_delete_flow.py`, `tests/test_reports.py`.
+**Where.** `tools` and `confirm_delete` in `agent/graph.py`; `reports/store.py`. Tests: `tests/test_delete_flow.py`, `tests/test_reports.py`, and the prompt wording in `tests/test_cli.py`.
 
 ### D-24. Earlier result tables are not resent to the model
 
@@ -396,9 +415,9 @@ These decisions were made while building and running the agent. Several of them 
 
 **Decision.** Seven sample trios live in `golden_bucket/` as JSON files. The two most similar to the question, by shared words, are added to the model's instructions.
 
-**Why.** The client confirmed on 2026-10-04 that the bucket is theoretical, that it need not be implemented in the prototype, and that a local folder of sample trios is the right stand-in. Matching on words needs no service and no extra model calls, and the function it sits behind (`find_similar`) is what an embedding search would implement.
+**Why.** The client confirmed on 2026-10-04 that the bucket is theoretical, that it need not be implemented in the prototype, and that a local folder of sample trios is the right stand-in. They also said that the real bucket holds about 1,000 trios in JSON, which is the format the samples use, and asked how it scales with hundreds of users; that is answered in the design (section 3.1). Matching on words needs no service and no extra model calls, and the function it sits behind (`find_similar`) is what an embedding search would implement.
 
-**Kept honest by a test.** Every stored SQL statement is run through the SQL gate and the database in the test suite, and all seven were also run on real BigQuery. A trio that stops working fails the build.
+**Kept honest by tests.** Every stored SQL statement is run through the SQL gate and the local database in the offline suite, and on the real dataset in the BigQuery test group. A trio that stops working fails the build.
 
 **Where.** `golden/retrieval.py`, `golden_bucket/`. Tests: `tests/test_golden.py`.
 
@@ -421,14 +440,36 @@ The brief limits the prototype to four requirements, and the client asked for th
 | Not built | Why not | Where it is designed |
 |---|---|---|
 | A separate model call to classify each question | The agent declines unrelated questions itself; a router would add a call to every question | DESIGN 2 |
+| Verifying a token signature | There is no front end to issue a token; the mapping from claims to access is built and tested | DESIGN 1 |
+| Undo for deleted reports | The client does not need deleted reports to be recoverable | DESIGN 3.3 |
 | Embedding search over the Golden bucket | Seven trios; word matching is enough to show the mechanism | DESIGN 3.1 |
 | User preference memory | Design-only requirement | DESIGN 3.4 |
+| A cost cap computed in dollars | The client asked for it in the design only; the prototype limits model calls, tokens, time and bytes | DESIGN 3.5 |
 | An evaluation harness that runs the real model | Design-only requirement; the deterministic layers are tested exhaustively instead | DESIGN 3.6 |
 | A grounding check on figures in answers | Needs tolerance rules for rounding and derived figures to avoid false alarms | DESIGN 3.6 |
-| An admin page for the tone | The tone is a file that is read on every question, which shows the mechanism | DESIGN 3.8 |
-| Database-level row and column policies | Not possible on a public dataset we do not own | DESIGN 3.2 |
+| The admin page and the automated quality gate for tone changes | Design-only requirement; the tone is a file that is read on every question, which shows the mechanism | DESIGN 3.8 |
+| Database permissions and views | Not possible on a public dataset we do not own | DESIGN 3.2 |
 | Streaming answers, a web interface | The brief asks for a CLI | DESIGN 1 |
-| Charts, email, web search | Named in the brief as future extensions | DESIGN 7 |
+| Charts, email, Slack, web search | Named as future extensions | DESIGN 7 |
+
+### D-29. BigQuery is the default data source, and has its own test group
+
+**Situation.** The first version started on the local mock unless told otherwise, and its checks against BigQuery were run by hand and described in the documents. The client accepted the local database for tests but suggested testing on BigQuery as well.
+
+**Decision.**
+
+- The assistant uses BigQuery by default. The mock is an explicit offline mode: `--backend duckdb`.
+- When the CLI starts it makes one free dry-run. If BigQuery is not set up, it says what is missing and names the offline option, instead of failing in the middle of a question.
+- The checks against the real dataset are tests in the repository, run on request with `uv run pytest -m bigquery`: the schema in code against the live tables; every legitimate query, after the gate has rewritten it, as a dry-run for each profile; brand scope and personal data on real data; a bare table name refused; every analyst example.
+- `uv run pytest` stays offline and leaves that group out, so the default run needs no credentials and no network.
+
+**Why.** The brief is about BigQuery, so that is what a reviewer should get by default. Making the hand-run checks into tests means anyone can repeat them, and they are run again whenever the gate changes. Keeping the two groups apart keeps the fast suite fast and free.
+
+**Cost.** The corpus checks are dry-runs, which are free. The rest scan about 70 MB in total, against 1 TB free per month. The group takes about a minute.
+
+**A known notice.** Results are turned into DataFrames by the BigQuery client library, as in the runner supplied with the brief. The library has announced that this will be deprecated in favour of another package; the notice is filtered in the test configuration and nothing is affected today.
+
+**Where.** `config.py`, `cli/app.py`, `tests/test_bigquery_live.py`, `pyproject.toml`.
 
 ## Known limits, and what production adds
 
@@ -436,26 +477,26 @@ These are stated so nobody has to discover them.
 
 | Area | Limit in the prototype | Production answer |
 |---|---|---|
-| Scope enforcement | Enforced by the application only | Add BigQuery row-level security or authorized views, so the database enforces the same rule independently |
-| Personal data | Column allow-list plus pattern scrubber | Add column-level policy tags, and a managed inspection service in place of the patterns |
-| Demographics | Row-level safe columns are allowed | Minimum group size for demographic breakdowns |
+| Identity | A sample token payload chosen with a command-line option; no signature check | The API verifies the JWT sent by the front end |
+| Brand scope | Enforced by the SQL gate only | The gate remains the enforcement point, because BigQuery never sees the application's token; identity federation is an option if a second enforcement is wanted |
+| Personal data | Column allow-list plus pattern scrubber | Views without the personal data columns, so BigQuery refuses them too, and a managed inspection service in place of the patterns |
 | Input guard | Rules, then the model's own instruction to decline | A managed prompt-safety service in front |
-| Identity | Chosen with a command-line flag | Single sign-on; profile from an entitlements service |
 | Local engine | Some BigQuery functions do not translate | Not relevant: production uses BigQuery |
 | Figures in answers | The model can misstate a number; conventions and SQL totals reduce it | A mechanical grounding check before an answer is shown |
 | Conversation state | In memory; ends with the process (reports and traces persist) | Checkpoints in PostgreSQL |
-| Golden bucket retrieval | Shared words over seven files | Embedding index, filtered by the user's scope |
+| Golden bucket retrieval | Shared words over seven files | An embedding index over about 1,000 trios |
+| Cost cap | Limits on model calls, tokens, time and bytes | One setting in dollars, $1 per question by default, translated into those limits |
 | Model quality on the free tier | After 20 requests a day per larger model, the lite model answers | Paid capacity; the first model answers everything |
 
 ## Verification against the real dataset
 
-Run on 2026-10-04 with the project `opsfleet-demo`:
+Run on 2026-10-04 with the project `opsfleet-demo`. The first five points are now tests (`uv run pytest -m bigquery`, 79 tests).
 
 - The schema in code matches the live tables (D-02).
-- All 24 legitimate test queries, after rewriting for each of the four profiles, pass a BigQuery dry-run: 96 of 96. Dry-runs are free.
+- All 24 legitimate test queries, after rewriting for each of the three profiles, pass a BigQuery dry-run: 72 of 72. Dry-runs are free.
 - A bare table name sent straight to BigQuery is refused (D-10).
 - With real brands, each restricted profile sees only its own brands, including a brand name containing an apostrophe, which confirms values are escaped correctly.
 - `SELECT * FROM users` on real data returns only the eight safe columns.
 - All seven analyst examples pass the SQL gate and run on BigQuery, scanning 5 to 10 MB each.
-- Two full conversations were recorded with real Gemini and real BigQuery ([EXAMPLE_RUN.md](EXAMPLE_RUN.md)): 11 questions, 9 answered and 2 stopped by the guard as intended, none failed; two queries failed and were corrected by the agent; a delete was declined, another confirmed and then undone.
-- The figures in the recorded quarterly report were checked against the query result: revenue, order count and the three brand totals all match.
+- Two full conversations were recorded with real Gemini and real BigQuery ([EXAMPLE_RUN.md](EXAMPLE_RUN.md)): 11 questions, 9 answered and 2 stopped by the guard as intended, none failed; two of eleven queries failed and were corrected by the agent; a delete was declined and another confirmed.
+- Every figure in the recorded quarterly report was checked against the results of its two queries: revenue, order counts and return rates all match.

@@ -74,7 +74,7 @@ _MESSAGES = {
     "secrets_probe": "I can't share system configuration or credentials.",
     "pii_request": (
         "I can't show personal details such as names, emails or addresses. "
-        "I can identify customers by their customer ID and show aggregated demographics."
+        "I can identify customers by their customer ID and show their age, gender and location."
     ),
     "off_topic": "I can only help with analysis of our retail data: sales, customers and products.",
 }
