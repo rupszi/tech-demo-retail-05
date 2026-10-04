@@ -38,6 +38,8 @@ def test_delete_request_pauses_for_confirmation_and_deletes_nothing(session):
     assert len(titles(s)) == 3  # nothing deleted yet
     assert s.model.calls == 1  # the model is not consulted for the decision
     assert actions(s) == ["delete_requested"]
+    request = s.reports.audit("alice")[-1]
+    assert "Q1 review" in request["detail"] and "Driftline" in request["detail"]
 
 
 def test_approved_delete_removes_exactly_the_listed_reports(session):
@@ -56,7 +58,7 @@ def test_the_outcome_is_reported_by_the_application_not_the_model(session):
     s.ask("Delete all reports mentioning Driftline")
     result = s.confirm(True)
     assert "Deleted 2 report(s)" in result.answer and "Q1 review" in result.answer
-    assert "/undo" in result.answer and s.model.calls == 1
+    assert "cannot be undone" in result.answer and s.model.calls == 1
 
 
 def test_declined_delete_changes_nothing(session):
@@ -114,13 +116,18 @@ def test_a_new_message_instead_of_an_answer_counts_as_no(session):
     assert len(titles(s)) == 3 and "delete_cancelled" in actions(s)
 
 
-def test_undo_restores_what_was_deleted(session):
+def test_a_confirmed_delete_is_permanent(session):
     s = session(DELETE_DRIFTLINE)
-    s.ask("Delete all reports mentioning Driftline")
+    doomed = [
+        r["id"] for r in s.ask("Delete all reports mentioning Driftline").confirmation["reports"]
+    ]
     s.confirm(True)
-    assert s.undo_last_delete() == ["Q1 review", "Brand comparison"]
-    assert len(titles(s)) == 3
-    assert actions(s) == ["delete_requested", "delete", "restore"]
+    assert all(s.reports.get("alice", report_id) is None for report_id in doomed)
+    assert s.reports.find("alice", mentioning="Driftline") == []
+    assert not hasattr(s, "undo_last_delete")  # there is no way back, by design
+    deleted = s.reports.audit("alice")[-1]
+    assert deleted["action"] == "delete" and deleted["report_ids"] == doomed
+    assert "Q1 review" in deleted["detail"]  # the audit log keeps what was deleted
 
 
 def test_no_match_needs_no_confirmation(session):

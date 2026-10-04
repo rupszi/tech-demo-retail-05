@@ -7,12 +7,14 @@
 - guard:          rule-based check of the user's message; a blocked message never reaches the model
 - agent:          one model call; it either asks for tools or gives the final answer
 - tools:          runs the requested tools; a delete request is only prepared here, never executed
-- confirm_delete: pauses the graph until the user decides, deletes exactly what was shown, and
-                  reports the outcome itself, so what the user is told never depends on the model
+- confirm_delete: pauses the graph until the user decides, permanently deletes exactly what was
+                  shown, and reports the outcome itself, so what the user is told never depends on
+                  the model
 """
 
 from __future__ import annotations
 
+import json
 import math
 import operator
 from dataclasses import dataclass
@@ -201,7 +203,8 @@ def build_graph(deps: AgentDeps):
                                 "ids": ids,
                                 "reports": [{"id": r.id, "title": r.title} for r in found],
                             }
-                            deps.reports.log(owner, "delete_requested", ids, str(args))
+                            requested = {"criteria": args, "titles": [r.title for r in found]}
+                            deps.reports.log(owner, "delete_requested", ids, json.dumps(requested))
                             continue
                 else:
                     result = {"error": f"Unknown tool: {name}"}
@@ -230,7 +233,7 @@ def build_graph(deps: AgentDeps):
         if approved:
             deleted = deps.reports.delete(owner, pending["ids"])
             titles = "\n".join(f"- {r.title}" for r in deleted)
-            answer = f"Deleted {len(deleted)} report(s):\n{titles}\n\nType /undo to restore them."
+            answer = f"Deleted {len(deleted)} report(s):\n{titles}\n\nThis cannot be undone."
             result = {"deleted": len(deleted), "titles": [r.title for r in deleted]}
         else:
             deps.reports.log(owner, "delete_cancelled", pending["ids"])

@@ -1,8 +1,9 @@
 """The Saved Reports library.
 
 Reports belong to the user who created them: every read and write is filtered by owner, so one
-user can never see or delete another user's reports. Deleting is a soft delete, which is what makes
-"undo" possible, and every change is written to an audit log.
+user can never see or delete another user's reports. Deleting is permanent: the rows are removed
+and there is no way back. Every change is written to an audit log, which keeps the ids and titles
+of what was deleted.
 """
 
 from __future__ import annotations
@@ -20,9 +21,7 @@ CREATE TABLE IF NOT EXISTS reports (
     conversation_id TEXT NOT NULL,
     title TEXT NOT NULL,
     content TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    deleted_at TEXT,
-    delete_batch TEXT
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,10 +81,10 @@ class ReportStore:
         return self.get(owner, cursor.lastrowid)
 
     def list(self, owner: str) -> list[Report]:
-        return self._reports("owner = ? AND deleted_at IS NULL", [owner])
+        return self._reports("owner = ?", [owner])
 
     def get(self, owner: str, report_id: int) -> Report | None:
-        found = self._reports("owner = ? AND id = ? AND deleted_at IS NULL", [owner, report_id])
+        found = self._reports("owner = ? AND id = ?", [owner, report_id])
         return found[0] if found else None
 
     def find(
@@ -97,7 +96,7 @@ class ReportStore:
         report_ids: list[int] | None = None,
     ) -> list[Report]:
         """The owner's reports matching every filter given. No filter matches all of them."""
-        where, params = ["owner = ?", "deleted_at IS NULL"], [owner]
+        where, params = ["owner = ?"], [owner]
         if mentioning:
             term = mentioning.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             where.append("(title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')")
@@ -111,40 +110,20 @@ class ReportStore:
         return self._reports(" AND ".join(where), params)
 
     def delete(self, owner: str, report_ids: list[int]) -> list[Report]:
-        """Soft-delete exactly these reports if they belong to `owner`. Returns what was deleted."""
+        """Permanently delete exactly these reports if they belong to `owner`.
+
+        Returns what was deleted. The delete and its audit entry are committed together.
+        """
         doomed = self.find(owner, report_ids=report_ids)
         if not doomed:
             return []
         ids = [r.id for r in doomed]
-        batch = f"{owner}:{_now()}:{ids[0]}"
         self._db.execute(
-            f"UPDATE reports SET deleted_at = ?, delete_batch = ? "
-            f"WHERE owner = ? AND id IN ({', '.join('?' * len(ids))})",
-            [_now(), batch, owner, *ids],
+            f"DELETE FROM reports WHERE owner = ? AND id IN ({', '.join('?' * len(ids))})",
+            [owner, *ids],
         )
-        self.log(owner, "delete", ids)
+        self.log(owner, "delete", ids, json.dumps([r.title for r in doomed]))
         return doomed
-
-    def restore_last(self, owner: str) -> list[Report]:
-        """Undo the owner's most recent delete."""
-        row = self._db.execute(
-            "SELECT delete_batch FROM reports WHERE owner = ? AND deleted_at IS NOT NULL "
-            "ORDER BY deleted_at DESC, id DESC LIMIT 1",
-            [owner],
-        ).fetchone()
-        if row is None:
-            return []
-        batch = row["delete_batch"]
-        ids = [
-            r["id"]
-            for r in self._db.execute("SELECT id FROM reports WHERE delete_batch = ?", [batch])
-        ]
-        self._db.execute(
-            "UPDATE reports SET deleted_at = NULL, delete_batch = NULL WHERE delete_batch = ?",
-            [batch],
-        )
-        self.log(owner, "restore", ids)
-        return self.find(owner, report_ids=ids)
 
     def audit(self, owner: str) -> list[dict]:
         rows = self._db.execute(

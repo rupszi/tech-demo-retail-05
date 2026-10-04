@@ -47,8 +47,8 @@ TOOL_SPECS = [
     ),
     ToolSpec(
         "delete_reports",
-        "Request deletion of saved reports. The application asks the user to confirm before "
-        "anything is deleted. Give at least one way of choosing the reports.",
+        "Request permanent deletion of saved reports. The application asks the user to confirm "
+        "before anything is deleted. Give at least one way of choosing the reports.",
         _schema(
             {
                 "mentioning": {

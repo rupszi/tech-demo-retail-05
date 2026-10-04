@@ -1,7 +1,7 @@
 """Command-line chat interface.
 
-The interface owns everything the model must not control: who the user is, the confirmation of a
-destructive action, and undo. It talks to the agent only through `ChatSession`.
+The interface owns what the model must not control: who the user is, and the confirmation of a
+destructive action. It talks to the agent only through `ChatSession`.
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ Ask a question about sales, customers or products, or ask for a report.
 
   /reports       list your saved reports
   /report <id>   show a saved report
-  /undo          restore the reports removed by your last delete
   /trace         show the steps behind the last answer
   /stats         show agent metrics across all recorded questions
   /help          show this help
@@ -136,7 +135,11 @@ def _confirm_delete(request: dict, console: Console) -> bool:
         table.add_row(str(report["id"]), report["title"])
     console.print(table)
     try:
-        return Confirm.ask("Delete these reports?", default=False, console=console)
+        return Confirm.ask(
+            "Delete these reports permanently? This cannot be undone",
+            default=False,
+            console=console,
+        )
     except (EOFError, KeyboardInterrupt):
         return False
 
@@ -177,11 +180,6 @@ def _run_command(text: str, session: ChatSession, settings: Settings, console: C
             console.print("No such report. Use /reports to see the ids.\n")
         else:
             console.print(Markdown(f"# {report.title}\n\n{report.content}"))
-    elif name == "/undo":
-        restored = session.undo_last_delete()
-        console.print(
-            f"Restored: {', '.join(restored)}\n" if restored else "There is nothing to restore.\n"
-        )
     elif name == "/trace":
         _show_trace(session.tracer.last, settings, console)
     elif name == "/stats":

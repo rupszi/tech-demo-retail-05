@@ -264,11 +264,11 @@ Code: `safety/profiles.py`, `safety/scoping.py`, `config/users.*.json`, `agent/p
 
 ### Phase 12: Permanent delete
 Code: `reports/store.py`, `agent/graph.py`, `agent/session.py`, `agent/prompts.py`, `cli/app.py`.
-- [ ] No soft delete, restore or `/undo` in code, help text, instructions or tests
-- [ ] A confirmed delete removes the reports: they cannot be listed, opened or found afterwards, and their ids are not reused
-- [ ] The confirmation and the outcome both say the deletion is permanent
-- [ ] The audit log records the request and the confirmation or cancellation, with ids and titles
-- [ ] The earlier guarantees hold: nothing before confirmation, exactly the previewed ids, own reports only, the model cannot confirm
+- [x] No soft delete, restore or `/undo` in code, help text, instructions or tests
+- [x] A confirmed delete removes the reports: they cannot be listed, opened or found afterwards, and their ids are not reused
+- [x] The confirmation and the outcome both say the deletion is permanent
+- [x] The audit log records the request, and the confirmation or cancellation, with the ids; the titles of what was requested and of what was deleted are kept
+- [x] The earlier guarantees hold: nothing before confirmation, exactly the previewed ids, own reports only, the model cannot confirm
 
 ### Phase 13: BigQuery by default, and a BigQuery test group
 Code: `config.py`, `cli/app.py`, `.env.example`, `pyproject.toml`, `tests/test_bigquery_live.py`.

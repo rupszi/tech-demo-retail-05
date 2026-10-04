@@ -31,8 +31,8 @@ Plan and gates: [PLAN.md, section 9](PLAN.md#9-revision-after-the-clients-answer
 |---|---|:-:|:-:|---|
 | 10 | Record the answers and the plan | ✅ | 2 / 2 | `QUESTIONS.md` holds all twelve answers and what each changes; `PLAN.md` section 9 has the phases, gates and tests |
 | 11 | Scope by brand, from token claims | ✅ | 4 / 4 | `test_profiles.py`: brand scopes, the explicit all-brands grant, no scope means no access, other scope kinds ignored, a missing subject and malformed scopes rejected. `test_scoping.py`: a profile with no brand scope gets zero rows from all four tables; rows per user still equal ground truth. `test_sql_gate.py`: both corpora pass for all three profiles |
-| 12 | Permanent delete | 🟦 | 0 / 5 | |
-| 13 | BigQuery by default, and a BigQuery test group | ⬜ | 0 / 4 | |
+| 12 | Permanent delete | ✅ | 5 / 5 | `test_reports.py`: deleted reports cannot be listed, opened or found; ids are not reused; the audit entry keeps the titles. `test_delete_flow.py`: a confirmed delete is permanent and says so; the request is audited with titles; all earlier guarantees still pass. `test_cli.py`: the prompt names the reports and says the deletion is permanent. No restore function or `/undo` remains in `src/` |
+| 13 | BigQuery by default, and a BigQuery test group | 🟦 | 0 / 4 | |
 | 14 | Time limit per question | ⬜ | 0 / 2 | |
 | 15 | Documentation in step with the code | ⬜ | 0 / 6 | |
 | 16 | Example run and fresh clone | ⬜ | 0 / 3 | |

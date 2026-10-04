@@ -90,9 +90,6 @@ class ChatSession:
         self.tracer.resume()
         return self._run(Command(resume={"approved": approved}))
 
-    def undo_last_delete(self) -> list[str]:
-        return [r.title for r in self.reports.restore_last(self.profile.user_id)]
-
     def _run(self, graph_input: Any) -> TurnResult:
         self.awaiting_confirmation = False
         try:

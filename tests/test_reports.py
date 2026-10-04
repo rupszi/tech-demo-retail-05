@@ -56,22 +56,29 @@ def test_delete_with_no_ids_does_nothing(store):
     assert len(store.list("alice")) == 3
 
 
-def test_undo_restores_the_last_delete_only(store):
+def test_deleted_reports_are_gone_for_good(store):
     first, second, third = (r.id for r in store.list("alice"))
-    store.delete("alice", [first])
-    store.delete("alice", [second, third])
-    assert titles(store.restore_last("alice")) == ["Texas deep dive", "Brand comparison"]
-    assert titles(store.list("alice")) == ["Texas deep dive", "Brand comparison"]
-    assert titles(store.restore_last("alice")) == ["Q1 review"]
-    assert store.restore_last("alice") == []
+    assert titles(store.delete("alice", [first, second])) == ["Q1 review", "Texas deep dive"]
+    assert titles(store.list("alice")) == ["Brand comparison"]
+    assert store.get("alice", first) is None
+    assert store.find("alice", report_ids=[first, second]) == []
+    assert store.find("alice", mentioning="Texas") == []
+    assert store.delete("alice", [first, second]) == []  # deleting again finds nothing
+
+
+def test_ids_are_never_reused_after_a_delete(store):
+    """So an id in the audit log can never point at a different, later report."""
+    last = store.list("bob")[-1].id
+    store.delete("bob", [last])
+    assert store.save("bob", "c", "A new report", "content").id > last
 
 
 def test_every_change_is_audited(store):
     ids = [r.id for r in store.list("alice")]
-    store.delete("alice", ids[:1])
-    store.restore_last("alice")
-    actions = [(e["action"], e["report_ids"]) for e in store.audit("alice")]
-    assert actions[-2:] == [("delete", ids[:1]), ("restore", ids[:1])]
+    store.delete("alice", ids[:2])
+    entry = store.audit("alice")[-1]
+    assert (entry["action"], entry["report_ids"]) == ("delete", ids[:2])
+    assert "Q1 review" in entry["detail"] and "Texas deep dive" in entry["detail"]  # titles survive
     assert [e["action"] for e in store.audit("alice")].count("save") == 3
     assert all(e["action"] == "save" for e in store.audit("bob"))
 
