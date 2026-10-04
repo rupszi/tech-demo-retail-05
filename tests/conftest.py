@@ -33,3 +33,39 @@ def gateway(backend, profiles):
         return QueryGateway(backend, profile, max_rows=max_rows)
 
     return make
+
+
+@pytest.fixture
+def settings(tmp_path):
+    from retail_agent.config import Settings
+
+    root = Path(__file__).parents[1]
+    return Settings(
+        reports_db_path=str(tmp_path / "reports.sqlite"),
+        trace_dir=str(tmp_path / "logs"),
+        persona_path=str(root / "config" / "persona.md"),
+        golden_dir=str(root / "golden_bucket"),
+    )
+
+
+@pytest.fixture
+def chat(backend, profiles, settings):
+    """Start a conversation driven by a scripted model: chat(*responses, user="alice")."""
+    from retail_agent.agent import ChatSession
+
+    from .fakes import ScriptedLLM
+
+    def start(*script, user="alice", llm=None, **overrides):
+        from dataclasses import replace
+
+        model = llm or ScriptedLLM(*script)
+        session = ChatSession(
+            llm=model,
+            backend=backend,
+            profile=profiles[user],
+            settings=replace(settings, **overrides),
+        )
+        session.model = model
+        return session
+
+    return start
