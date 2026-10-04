@@ -139,6 +139,7 @@ def compute_stats(traces: list[dict[str, Any]]) -> dict[str, Any]:
         "questions": n,
         "answered": share(lambda t: t["outcome"] == "answered"),
         "blocked_by_guard": share(lambda t: t["outcome"] == "blocked"),
+        "gave_up": share(lambda t: t["outcome"] == "gave_up"),
         "failed": share(lambda t: t["outcome"] == "failed"),
         "latency_ms_p50": _percentile(durations, 0.5),
         "latency_ms_p95": _percentile(durations, 0.95),

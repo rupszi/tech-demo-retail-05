@@ -7,6 +7,7 @@ destructive action, and undo. It talks to the agent only through `ChatSession`.
 from __future__ import annotations
 
 import argparse
+import sys
 from dataclasses import replace
 
 from rich.console import Console
@@ -94,12 +95,15 @@ def main(argv: list[str] | None = None) -> int:
     console.print(f"Signed in as [bold]{profile.name}[/]. Access: {profile.describe_scope()}.")
     console.print("[dim]Type /help for commands.[/]\n")
 
+    interactive = sys.stdin.isatty()
     while True:
         try:
             text = console.input("[bold cyan]you>[/] ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print()
             return 0
+        if not interactive:
+            console.print(text)  # keep piped sessions readable as transcripts
         if not text:
             continue
         if text in ("/quit", "/exit"):
@@ -111,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
         result = run(lambda question=text: session.ask(question))
         while result.confirmation:  # the decision is taken here, outside the model's reach
             approved = _confirm_delete(result.confirmation, console)
+            if not interactive:
+                console.print("y" if approved else "n")
             result = run(lambda decision=approved: session.confirm(decision))
         console.print(Markdown(result.answer))
         _footer(result, console)

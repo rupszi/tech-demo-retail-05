@@ -68,6 +68,7 @@ def test_metrics_are_computed_from_the_traces(chat, settings):
     stats = compute_stats(read_traces(settings.trace_dir))
     assert stats["questions"] == 4
     assert stats["answered"] == 0.5 and stats["blocked_by_guard"] == 0.25
+    assert stats["gave_up"] == 0.25 and stats["failed"] == 0.0
     assert stats["guard_blocks_by_category"] == {"prompt_injection": 1}
     assert stats["sql_queries"] == 6 and stats["sql_error_rate"] == round(4 / 6, 3)
     assert stats["recovered_after_sql_error"] == 0.5
