@@ -1,25 +1,23 @@
-# Questions for the client, and the assumptions used meanwhile
+# Questions for the client, with their answers
 
-The brief invites questions. This is the full list, and for each one the assumption the project is built on until an answer arrives. **Nothing here blocks the work**: if a question is not answered, the assumption stands and is stated in the documentation. When an answer arrives it is recorded here and in the [tracker](TRACKER.md), and the affected code or design is updated.
+The brief invites questions. This page lists the twelve that were asked, the assumption the project was built on while waiting, the client's answer, and what the answer changed.
 
-Questions 1 to 6 affect the prototype. Questions 7 to 12 affect only the design document.
+**Sent on 2026-10-04. All twelve were answered the same day.** Most answers confirmed the assumptions. The ones that did not are planned as phases 10 to 17 in [PLAN.md, section 9](PLAN.md#9-revision-after-the-clients-answers), and their progress is in the [tracker](TRACKER.md).
 
-**Sent to the client on 2026-10-04.** Question 5 was answered the same day. Questions 1 to 3 were passed to a colleague on the client side to confirm or adjust; until they answer, the assumptions stand.
-
-| # | Topic | Affects | Status |
+| # | Topic | Answer in short | Result |
 |---|---|---|---|
-| 1 | Which products a user may analyse | Prototype | With the client for confirmation |
-| 2 | What counts as personal data | Prototype | With the client for confirmation |
-| 3 | Saved Reports library | Prototype | With the client for confirmation |
-| 4 | Confirmation before deleting | Prototype | Awaiting answer |
-| 5 | Golden Knowledge bucket | Prototype (small), design | **Answered 2026-10-04** |
-| 6 | Local test data | Prototype | Awaiting answer |
-| 7 | Identity and permissions | Design | Awaiting answer |
-| 8 | Scale and response time | Design | Awaiting answer |
-| 9 | Channels and integrations | Design | Awaiting answer |
-| 10 | Who changes the assistant's tone | Design | Awaiting answer |
-| 11 | Data residency and compliance | Design | Awaiting answer |
-| 12 | Cost limits | Design | Awaiting answer |
+| 1 | Which products a user may analyse | Each user sees only their brands; the CEO sees all | **Changed:** scope is by brand only (phase 11) |
+| 2 | What counts as personal data | The assumed list; customer IDs are fine; demographics per individual are fine | Confirmed |
+| 3 | Saved Reports library | Ours to design; any term; no recovery needed; no sharing | **Changed:** deleting is permanent (phase 12) |
+| 4 | Confirmation before deleting | Yes, one confirmation is enough | Confirmed |
+| 5 | Golden Knowledge bucket | Theoretical; JSON; about 1,000 trios; think about hundreds of users | Confirmed, and the design is extended (phase 15) |
+| 6 | Local test data | Fine, but test on BigQuery as well | **Changed:** a BigQuery test group, and BigQuery by default (phase 13) |
+| 7 | Identity and permissions | The front end sends a JWT with the user's scopes | **Changed:** profiles come from token claims (phases 11 and 15) |
+| 8 | Scale and response time | Assumptions are good; long reports may take one to two minutes | Confirmed, and a time limit is added (phase 14) |
+| 9 | Channels and integrations | Web chat over an API; Slack outputs maybe later | Confirmed; the design treats Slack as an output (phase 15) |
+| 10 | Who changes the assistant's tone | One non-developer; an automated quality gate | **Changed** in the design (phase 15) |
+| 11 | Data residency and compliance | No compliance requirements | Simplifies the design (phase 15) |
+| 12 | Cost limits | Configurable; assume $1 per question; design only | **Changed** in the design (phase 15) |
 
 ---
 
@@ -33,9 +31,11 @@ The brief says: "Each user should only be able to analyze data on products relat
 
 **Assumption.** Each user is entitled to a list of brands and/or departments. For example, a brand manager sees three brands and the CEO sees everything. The restriction is applied in code to every query, so it does not depend on the model. A user sees only the products in their list, the order items for those products, the orders that contain at least one of them, and the customers who bought at least one of them.
 
-**Follow-up.** An order can mix a user's products with other products. Under the assumption the order is visible, but only the user's own items and their revenue are. Is that the intended behaviour?
+**Follow-up asked.** An order can mix a user's products with other products. Under the assumption the order is visible, but only the user's own items and their revenue are. Is that the intended behaviour?
 
-**Answer.** Awaiting.
+**Answer.** Each user can see only the brands related to them; the CEO sees all.
+
+**What it changes.** Brand is the only scope. Scoping by department, which was an addition of ours, is removed together with the demo user that used it. "Sees all" becomes an explicit grant rather than the absence of a restriction, so a user with no brand scope sees nothing. The follow-up about mixed orders was not addressed, so that behaviour stays as assumed.
 
 ### 2. What counts as personal data
 
@@ -47,9 +47,14 @@ The brief says: "Each user should only be able to analyze data on products relat
 **Assumption.**
 1. First name, last name, email, street address, postal code, latitude and longitude are personal data. They never appear in output and cannot be used in a query at all.
 2. Yes. Customers are shown as customer IDs, never by name.
-3. Allowed for an individual customer ID. Restricting demographics to aggregates with a minimum group size is described in the design as a production option.
+3. Allowed for an individual customer ID.
 
-**Answer.** Awaiting.
+**Answer.**
+1. Names, email, address, postal code, coordinates.
+2. Yes.
+3. Showing them for an individual is fine.
+
+**What it changes.** Nothing in the code. The documents no longer list demographics per customer as an open point, and no minimum group size is needed.
 
 ### 3. Saved Reports library
 
@@ -63,9 +68,11 @@ The brief says: "Each user should only be able to analyze data on products relat
 1. It is designed and built as part of this work.
 2. A case-insensitive text match on title and content.
 3. Yes: deletion is a soft delete, recoverable for a period, with an audit trail of who deleted what and when.
-4. Each user sees and deletes only their own reports. Sharing is out of scope for the prototype.
+4. Each user sees and deletes only their own reports.
 
-**Answer.** Awaiting.
+**Answer.** It is part of what we design. Any term is fine. There is no need to be able to recover deleted reports. Reports are not shared between users.
+
+**What it changes.** Deleting becomes permanent. The soft delete, the restore function and the `/undo` command are removed, and the confirmation says that the deletion cannot be undone. The audit trail stays: it records who asked, who confirmed, and the ids and titles of what was deleted.
 
 ### 4. Confirmation before deleting
 
@@ -75,7 +82,9 @@ The brief asks for "a strict confirmation flow before execution, without breakin
 
 **Assumption.** Yes. The assistant lists the matching reports (how many, and their titles) and asks once. Anything other than an explicit "yes" cancels. The reports deleted are exactly the ones that were listed, even if more reports are created in the meantime. The confirmation is handled by the application and cannot be given by the model on the user's behalf.
 
-**Answer.** Awaiting.
+**Answer.** Yes.
+
+**What it changes.** Nothing.
 
 ### 5. Golden Knowledge bucket
 
@@ -86,14 +95,12 @@ The brief asks for "a strict confirmation flow before execution, without breakin
 
 **Assumption.**
 1. One JSON document per trio, containing the question, the SQL (BigQuery dialect), the analyst's report, and metadata such as author, date and tags.
-2. Hundreds to a few thousand, which is what the retrieval design is sized for.
+2. Hundreds to a few thousand.
 3. Answers from the assistant only become candidates. A human analyst approves a candidate before it enters the bucket.
 
-Because the brief describes the bucket as theoretical, the prototype uses a small set of sample trios in a local folder.
+**Answer.** The bucket is theoretical and does not need to be implemented in the prototype; a local folder with sample trios is the right stand-in, and the real bucket belongs in the HLD and the design document. The format is JSON. There are about 1,000 trios. Who approves additions is our decision in the design. We should think about how this scales with hundreds of users.
 
-**Answer (2026-10-04).** The bucket is theoretical and does not need to be implemented in the prototype. It should be covered in the HLD and the design document. The assumed structure, a local folder with sample trios for the prototype, is the right approach.
-
-**What was done.** The prototype has seven sample trios in `golden_bucket/` and a simple word-match retrieval. The production design (storage, indexing, retrieval, how the bucket is kept current) is in [DESIGN.md, section 3.1](DESIGN.md#31-hybrid-intelligence-the-golden-knowledge-bucket). Parts 1 and 2 of the question (the real file format and the number of trios) were not answered and remain assumptions; they affect only the design.
+**What it changes.** Nothing in the prototype, which keeps its folder of sample trios. The design is sized for about 1,000 trios and gains a part on scale: what retrieval costs with hundreds of users, how candidates from many users are triaged before an analyst sees them, and why trios are written without brand names or figures so that one trio can serve users with different brands.
 
 ### 6. Local test data
 
@@ -101,7 +108,9 @@ Because the brief describes the bucket as theoretical, the prototype uses a smal
 
 **Assumption.** Yes. The prototype runs against `bigquery-public-data.thelook_ecommerce` as the brief requires. The local database exists only so that tests run offline, quickly and repeatably on any machine.
 
-**Answer.** Awaiting.
+**Answer.** Yes, but the client suggests testing on BigQuery as well; the free tier allows 1 TB of processing.
+
+**What it changes.** The BigQuery checks that had been run by hand become a test group in the repository, run on request. BigQuery also becomes the default data source of the assistant, with the local database as an explicit offline mode.
 
 ---
 
@@ -113,7 +122,11 @@ Because the brief describes the bucket as theoretical, the prototype uses a smal
 
 **Assumption.** Identities come from the company's single sign-on, and permissions from a central permissions table or service. The prototype selects a mock user with a command-line option.
 
-**Answer.** Awaiting.
+**Answer.** Assume the front end sends a JWT with the user's scopes.
+
+**What it changes.** The design drops the sign-in proxy and the permissions service: the API verifies the token and reads the scopes from it. In the prototype a user profile is built from token claims, and the files in `config/` are sample token payloads. One part of the earlier design no longer holds: BigQuery cannot enforce a per-user row policy from an application-level token, so brand scope is enforced by the SQL gate, and BigQuery enforces read-only access and the absence of personal data.
+
+The claim format is our assumption: a `scopes` list with entries such as `brand:Levi's`, and `brand:*` for the CEO.
 
 ### 8. Scale and response time
 
@@ -121,7 +134,9 @@ Because the brief describes the bucket as theoretical, the prototype uses a smal
 
 **Assumption.** Tens to a few hundred executives, with few of them active at the same time. Ten to thirty seconds for an analysis is acceptable as long as progress is shown.
 
-**Answer.** Awaiting.
+**Answer.** The assumptions look good. Long reports can even take one to two minutes.
+
+**What it changes.** A question gets a time limit of two minutes in addition to its limits on model calls and tokens. The design no longer moves long reports to a background job.
 
 ### 9. Channels and integrations
 
@@ -129,7 +144,9 @@ Because the brief describes the bucket as theoretical, the prototype uses a smal
 
 **Assumption.** A web chat in production, built on an API so that other channels can be added. No preferred email provider: sending email is designed as a replaceable tool and is not built in the prototype.
 
-**Answer.** Awaiting.
+**Answer.** In production, web chat over an API. Slack outputs might be added later.
+
+**What it changes.** The design treats Slack as a place to send results, built as a tool like email, and not as a second chat channel.
 
 ### 10. Who changes the assistant's tone
 
@@ -139,7 +156,9 @@ The brief says the CEO wants to change the tone of the reports weekly, without r
 
 **Assumption.** One or two named people who are not developers edit the tone through an admin page. Each change is versioned, takes effect without a deployment, and can be rolled back. The safety rules are separate and cannot be edited there.
 
-**Answer.** Awaiting.
+**Answer.** A few non-developers; one can be assumed for this task. It needs to be an automated quality gate.
+
+**What it changes.** In the design, a tone change is published only if an automated gate passes: static checks on the text, then an evaluation run with pass thresholds. No person approves it. A change that makes live metrics worse is rolled back automatically.
 
 ### 11. Data residency and compliance
 
@@ -147,7 +166,9 @@ The brief says the CEO wants to change the tone of the reports weekly, without r
 
 **Assumption.** A single region (US, where the dataset lives). In production the model is reached through Vertex AI, so data stays under the Google Cloud project's own terms.
 
-**Answer.** Awaiting.
+**Answer.** No data compliance requirements.
+
+**What it changes.** The design chooses the region for cost and latency only. The rule that personal data never appears in output comes from the brief and is unaffected.
 
 ### 12. Cost limits
 
@@ -155,4 +176,6 @@ The brief says the CEO wants to change the tone of the reports weekly, without r
 
 **Assumption.** There is a cap per question, both on model usage and on the amount of data a query may scan. Above the cap the assistant declines and explains why.
 
-**Answer.** Awaiting.
+**Answer.** Yes. It should be easily configurable; $1 per question can be assumed; design only.
+
+**What it changes.** The design expresses the cap in dollars, $1 per question by default, and translates it into the limits on tokens, model calls and bytes scanned through a price table. The prototype keeps those limits as settings and does not compute dollars.

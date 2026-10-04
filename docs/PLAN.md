@@ -200,3 +200,114 @@ The plan was written before any code. These are the places where delivery depart
 - All phase gates are met and recorded in the tracker.
 - Every requirement in the brief has either working code and tests, or a design section, as stated in section 1.
 - A new machine can run the prototype from the README alone.
+
+## 9. Revision after the client's answers
+
+The client answered all twelve questions on 2026-10-04 ([QUESTIONS.md](QUESTIONS.md)). Most answers confirm what was built. This section plans the changes that follow from the rest. Phases 10 to 17 continue the numbering above and have the same rule: a phase is complete only when every gate is met, with evidence in the tracker.
+
+### What the answers change
+
+| # | Answer | Effect |
+|---|---|---|
+| 1 | Each user sees only their brands; the CEO sees all | Scope is by brand only. Scoping by department was never asked for and is removed |
+| 2 | The assumed list of personal data; customer IDs are fine; demographics per individual are fine | Confirmed. An open point in the documents is closed |
+| 3 | The report store is ours to design; any term; no need to recover deleted reports; no sharing | Soft delete and undo are removed. Deleting is permanent |
+| 4 | One confirmation is enough | Confirmed |
+| 5 | JSON; about 1,000 trios; approval is our call; think about hundreds of users | Design: how the bucket scales |
+| 6 | A local mock is fine, but test on BigQuery too | A BigQuery test group is added to the repository |
+| 7 | The front end sends a JWT with the user's scopes | Profiles are built from token claims. Design: no sign-in proxy or permissions service |
+| 8 | Assumptions are good; long reports may take one to two minutes | A time limit per question; no background job for reports |
+| 9 | Web chat over an API; Slack outputs maybe later | Design: Slack is an output, not a second chat channel |
+| 10 | One non-developer editor; an automated quality gate | Design: publishing a tone change is decided by an automated gate |
+| 11 | No compliance requirements | Design: residency language removed |
+| 12 | A configurable cap; assume $1 per question; design only | Design: the cap is expressed in dollars |
+
+### Scope decisions for the revision
+
+| Question | Decision |
+|---|---|
+| Remove undo and soft delete? | Yes, remove |
+| Remove department scoping and the `dan` user? | Yes |
+| Make BigQuery the default backend, with the mock as an explicit offline mode? | Yes |
+| Add a two-minute time limit per question? | Yes |
+
+### From what to what
+
+| Item | From | To |
+|---|---|---|
+| Scope model | Brands and/or departments; four demo users | Brand only; three demo users (two with brands, the CEO) |
+| "Sees everything" | A missing brand list means no restriction | An explicit grant; a user with no brand scope sees nothing |
+| Where the scope comes from | A profile looked up by `--user` | A profile built from token claims (`sub`, `name`, `scopes`); the config files are sample token payloads that `--user` picks from |
+| Deleting reports | Soft delete, `/undo`, restore | Permanent delete after one confirmation that says so; audit log keeps who, when and which titles |
+| Default data source | Local mock | BigQuery; the mock is `--backend duckdb` |
+| BigQuery in tests | Checked by hand | An opt-in test group in the repository |
+| Limits per question | Model calls and tokens | Model calls, tokens and time (120 seconds by default) |
+| Sign-in (design) | Identity-Aware Proxy, single sign-on, permissions service | The front end sends a signed JWT; the API verifies it and reads the scopes |
+| Second enforcement in BigQuery (design) | Queries run as the signed-in user with row policies | BigQuery enforces read-only access and views without personal data; brand scope is enforced by the SQL gate |
+| Golden bucket (design) | Hundreds to a few thousand trios, tagged by product scope | About 1,000 JSON trios written without brand names or figures; automated triage of candidates from many users |
+| Tone changes (design) | A named group, preview, checks, a quick evaluation run | One editor; publishing only through an automated quality gate; automatic rollback |
+| Cost (design) | Limits on tokens, calls and bytes | A configurable cap in dollars per question, $1 by default, translated into those limits |
+| Latency (design) | 10 to 30 seconds; long reports as a background job | Seconds for questions; one to two minutes for long reports, with progress shown |
+| Slack (design) | A possible second chat channel | A later output, modelled as a tool |
+| Compliance (design) | Single region, data-terms caveats | No compliance requirements |
+
+### Phase 10: Record the answers and the plan
+- [x] All twelve answers recorded in `QUESTIONS.md` with the date and what each one changes
+- [x] This section and the tracker cover phases 10 to 17
+
+### Phase 11: Scope by brand, from token claims
+Code: `safety/profiles.py`, `safety/scoping.py`, `config/users.*.json`, `agent/prompts.py`, `cli/app.py`.
+- [ ] Brand is the only scope: no department scope in code, configuration or tests
+- [ ] "All brands" is an explicit grant; a profile with no brand scope gets zero rows from every table
+- [ ] A profile is built from token claims; a token without a subject or with malformed scopes is rejected
+- [ ] The hostile and valid query corpora pass for every profile, and the scoping tests still match ground truth
+
+### Phase 12: Permanent delete
+Code: `reports/store.py`, `agent/graph.py`, `agent/session.py`, `agent/prompts.py`, `cli/app.py`.
+- [ ] No soft delete, restore or `/undo` in code, help text, instructions or tests
+- [ ] A confirmed delete removes the reports: they cannot be listed, opened or found afterwards, and their ids are not reused
+- [ ] The confirmation and the outcome both say the deletion is permanent
+- [ ] The audit log records the request and the confirmation or cancellation, with ids and titles
+- [ ] The earlier guarantees hold: nothing before confirmation, exactly the previewed ids, own reports only, the model cannot confirm
+
+### Phase 13: BigQuery by default, and a BigQuery test group
+Code: `config.py`, `cli/app.py`, `.env.example`, `pyproject.toml`, `tests/test_bigquery_live.py`.
+- [ ] `DATA_BACKEND` defaults to `bigquery`; `--backend duckdb` runs offline on the mock
+- [ ] A missing BigQuery setup gives a clear message that names the offline option
+- [ ] `uv run pytest` stays offline and leaves the BigQuery group out; `uv run pytest -m bigquery` runs it
+- [ ] The BigQuery group passes: schema match, the valid corpus as dry-runs for every profile, scoping and personal data on real data, a bare table name refused, every analyst example runs
+
+### Phase 14: Time limit per question
+Code: `config.py`, `agent/graph.py`.
+- [ ] `TURN_TIME_BUDGET_SECONDS` (default 120) stops a question between steps with a clear message
+- [ ] The stop is recorded in the trace, and a test covers it
+
+### Phase 15: Documentation in step with the code
+- [ ] `DESIGN.md` reflects every row of "From what to what"
+- [ ] `DECISIONS.md`: changed entries revised, new entries added, known limits and verification current
+- [ ] `README.md`: users, commands, defaults and tests match the code
+- [ ] Every Mermaid diagram parses and renders
+- [ ] Every relative link and anchor resolves
+- [ ] No stale terms remain: undo, soft delete, department scope, the fourth user, the sign-in proxy, the permissions service, old test counts
+
+### Phase 16: Example run and fresh clone
+- [ ] Both example sessions re-recorded with the final code against BigQuery
+- [ ] The figures in the recorded report checked against the query result
+- [ ] Setup verified from a fresh clone, with `uv` and with `pip`
+
+### Phase 17: Independent audit
+Five separate review passes over the finished repository, each with its own focus: security of the SQL gate and scoping; documentation against code; coverage of the brief and of the client's answers; a mechanical sweep for stale text, links, counts and settings; and correctness of the agent, the delete flow and the failure handling.
+- [ ] All five passes completed, each reporting findings with file and line
+- [ ] Every finding checked, then fixed or recorded with the reason it stands
+- [ ] Full verification repeated after the fixes: tests, lint, BigQuery group, links
+- [ ] Audit summary recorded in the tracker
+
+### Tests for this revision
+
+| Phase | Added | Changed | Removed |
+|---|---|---|---|
+| 11 | `test_profiles.py`: brand scopes parsed; the all-brands grant; no scopes means no access; other scope kinds ignored; duplicates; missing subject and malformed scopes rejected | `test_scoping.py`, `test_sql_gate.py` (three profiles), `test_cli.py` | Department scope tests |
+| 12 | Deleted reports are gone for good; ids are not reused; the outcome says permanent | `test_reports.py`, `test_delete_flow.py` (audit trail, messages) | Undo tests |
+| 13 | `test_bigquery_live.py` (opt-in); default backend; startup message | `conftest.py`, `test_smoke.py` | |
+| 14 | A question that exceeds the time limit stops with a message and a trace event | | |
+

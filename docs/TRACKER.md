@@ -4,7 +4,7 @@ Updated in the same commit as the work it describes. Gate definitions are in [PL
 
 **Legend:** ⬜ not started · 🟦 in progress · ✅ done (all gates met) · ⛔ blocked
 
-**Last updated:** 2026-10-04 · **Overall:** all 10 phases complete.
+**Last updated:** 2026-10-04 · **Overall:** phases 0 to 9 delivered the prototype. Phases 10 to 17 are the revision after the client's answers and are in progress.
 
 ## Phase status
 
@@ -23,6 +23,21 @@ Updated in the same commit as the work it describes. Gate definitions are in [PL
 
 **Tests:** 753, about 3 seconds, offline. **Lint:** clean.
 
+## Revision after the client's answers
+
+Plan and gates: [PLAN.md, section 9](PLAN.md#9-revision-after-the-clients-answers).
+
+| # | Phase | Status | Gates met | Evidence / notes |
+|---|---|:-:|:-:|---|
+| 10 | Record the answers and the plan | ✅ | 2 / 2 | `QUESTIONS.md` holds all twelve answers and what each changes; `PLAN.md` section 9 has the phases, gates and tests |
+| 11 | Scope by brand, from token claims | 🟦 | 0 / 4 | |
+| 12 | Permanent delete | ⬜ | 0 / 5 | |
+| 13 | BigQuery by default, and a BigQuery test group | ⬜ | 0 / 4 | |
+| 14 | Time limit per question | ⬜ | 0 / 2 | |
+| 15 | Documentation in step with the code | ⬜ | 0 / 6 | |
+| 16 | Example run and fresh clone | ⬜ | 0 / 3 | |
+| 17 | Independent audit | ⬜ | 0 / 4 | |
+
 ## Deliverables
 
 | ID | Deliverable | Where | Status |
@@ -36,26 +51,24 @@ Updated in the same commit as the work it describes. Gate definitions are in [PL
 
 ## Questions for the client
 
-The full wording, with the assumption used for each, is in [QUESTIONS.md](QUESTIONS.md). None of them blocks the work.
+The full wording, the assumption used for each and what each answer changed are in [QUESTIONS.md](QUESTIONS.md).
 
-**Sent on 2026-10-04.**
+**Sent on 2026-10-04; all twelve answered the same day.**
 
-| # | Topic | Working assumption | Answer |
+| # | Topic | Answer | Result |
 |---|---|---|---|
-| 1 | Which products a user may analyse | A list of brands and/or departments per user | With the client for confirmation |
-| 2 | What counts as personal data | Names, email, address, postal code and coordinates are blocked; customers shown by ID; demographics allowed per customer | With the client for confirmation |
-| 3 | Saved Reports library | Built here; text match on title and content; soft delete; own reports only | With the client for confirmation |
-| 4 | Confirmation before deleting | One explicit confirmation listing exactly what will be deleted | |
-| 5 | Golden Knowledge bucket | A local folder of sample trios in the prototype; the real bucket in the design | **Confirmed 2026-10-04:** no need to implement it in the prototype; a local folder with sample trios is the right approach |
-| 6 | Local test data | Tests use a local mock; real runs use BigQuery | |
-| 7 | Identity and permissions | Single sign-on and a central permissions service | |
-| 8 | Scale and response time | Tens to hundreds of users; 10 to 30 seconds per analysis | |
-| 9 | Channels and integrations | Web chat over an API; email as a replaceable tool | |
-| 10 | Who changes the assistant's tone | Named non-developers, versioned changes, rollback | |
-| 11 | Data residency and compliance | Single region (US); Vertex AI in production | |
-| 12 | Cost limits | A cap per question on model usage and data scanned | |
-
-If an answer changes an assumption for questions 1 to 3, the affected code is small and isolated: `config/users.*.json` and `safety/scoping.py` for the product scope, `safety/policy.py` for the list of personal data columns, `reports/store.py` for how reports are matched and deleted.
+| 1 | Which products a user may analyse | Each user sees only their brands; the CEO sees all | Changed: brand is the only scope (phase 11) |
+| 2 | What counts as personal data | The assumed list; customer IDs fine; demographics per individual fine | Confirmed |
+| 3 | Saved Reports library | Ours to design; any term; no recovery needed; no sharing | Changed: deleting is permanent (phase 12) |
+| 4 | Confirmation before deleting | Yes | Confirmed |
+| 5 | Golden Knowledge bucket | Theoretical; JSON; about 1,000 trios; think about hundreds of users | Confirmed; design extended (phase 15) |
+| 6 | Local test data | Fine, but test on BigQuery too | Changed: BigQuery test group and default (phase 13) |
+| 7 | Identity and permissions | The front end sends a JWT with the user's scopes | Changed: profiles from token claims (phases 11, 15) |
+| 8 | Scale and response time | Assumptions good; long reports may take 1 to 2 minutes | Confirmed; time limit added (phase 14) |
+| 9 | Channels and integrations | Web chat over an API; Slack outputs maybe later | Confirmed; design wording (phase 15) |
+| 10 | Who changes the assistant's tone | One non-developer; an automated quality gate | Changed in the design (phase 15) |
+| 11 | Data residency and compliance | No compliance requirements | Simplifies the design (phase 15) |
+| 12 | Cost limits | Configurable; $1 per question; design only | Changed in the design (phase 15) |
 
 ## Log
 
@@ -75,3 +88,4 @@ If an answer changes an assumption for questions 1 to 3, the affected code is sm
 | 2026-10-04 | Real reports showed a wrong period and inconsistent revenue; conventions and analyst examples fixed it (D-25) |
 | 2026-10-04 | Phase 9: two sessions recorded against BigQuery and Gemini |
 | 2026-10-04 | Phase 8: design document, README, pinned requirements; setup verified from a fresh clone |
+| 2026-10-04 | The client answered all twelve questions. Revision planned as phases 10 to 17 |
