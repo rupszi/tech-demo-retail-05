@@ -41,8 +41,16 @@ TOOL_SPECS = [
         "Save a report to the user's Saved Reports library.",
         _schema(
             {
-                "title": {"type": "string"},
-                "content": {"type": "string", "description": "The full report in markdown."},
+                "title": {
+                    "type": "string",
+                    "description": "A short title naming the subject and the period, for example "
+                    "'Q1 2026 performance and actions for Q2'. One line, no personal data.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The full report in markdown: a short summary, key insights "
+                    "backed by numbers from this conversation's queries, and action items.",
+                },
             },
             ["title", "content"],
         ),
@@ -51,7 +59,10 @@ TOOL_SPECS = [
     ToolSpec(
         "get_report",
         "Read one saved report.",
-        _schema({"report_id": {"type": "integer"}}, ["report_id"]),
+        _schema(
+            {"report_id": {"type": "integer", "description": "The id shown by list_reports."}},
+            ["report_id"],
+        ),
     ),
     ToolSpec(
         "delete_reports",
@@ -67,7 +78,11 @@ TOOL_SPECS = [
                     "type": "boolean",
                     "description": "Delete the reports created in the current conversation.",
                 },
-                "report_ids": {"type": "array", "items": {"type": "integer"}},
+                "report_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Delete the reports with these ids, as shown by list_reports.",
+                },
                 "all_reports": {"type": "boolean", "description": "Delete every saved report."},
             }
         ),

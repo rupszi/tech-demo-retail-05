@@ -33,7 +33,7 @@ Three ideas shape the design.
 | 3 | High-stakes oversight | **Built and tested** | [3.3](#33-high-stakes-oversight) |
 | 4 | Continuous improvement | Design | [3.4](#34-continuous-improvement) |
 | 5 | Resilience and graceful error handling | **Built and tested** | [3.5](#35-resilience) |
-| 6 | Quality assurance | 781 offline tests and 79 against BigQuery, and a check of the tests themselves; evaluation design | [3.6](#36-quality-assurance) |
+| 6 | Quality assurance | 786 offline tests and 79 against BigQuery, and a check of the tests themselves; evaluation design | [3.6](#36-quality-assurance) |
 | 7 | Observability | **Built and tested**; the trace keeps no model text or tool results, see 3.7 | [3.7](#37-observability) |
 | 8 | Agility (tone without redeployment) | Tone file read on every question; design for the rest | [3.8](#38-agility-changing-the-tone-without-a-deployment) |
 
@@ -73,7 +73,7 @@ The API is small. Every call carries the JWT in the `Authorization` header.
 
 | Call | Purpose |
 |---|---|
-| `POST /v1/conversations/{id}/messages` | Ask a question. The response is a stream of server-sent events: progress, the answer, a confirmation request if a delete is waiting, and the trace id |
+| `POST /v1/conversations/{id}/messages` | Ask a question. The response is a stream of server-sent events: progress, the answer, a confirmation request if a delete is waiting, the trace id and, for a user with limited access, the note that the figures cover only their brands |
 | `POST /v1/conversations/{id}/confirmations/{confirmation_id}` | Answer a waiting confirmation with `approved` true or false |
 | `GET /v1/reports` and `GET /v1/reports/{id}` | The user's saved reports |
 | `POST /v1/traces/{trace_id}/feedback` | Mark an answer helpful or not helpful, with an optional comment |
@@ -99,7 +99,7 @@ Server-sent events are enough because the stream goes one way. The user's answer
 The client's answer is that the front end sends a JWT with the user's scopes. The design follows from that. A front end cannot be trusted to sign its own tokens, so we assume the token is issued by the company's identity provider when the user signs in, and that the front end only carries it. Any OpenID Connect provider fits.
 
 - **Verified on every request.** The API checks the token's signature against the identity provider's published keys, which it caches and refreshes when they rotate, and it checks the expiry, issuer and audience. A request without a valid token is refused before it reaches the agent.
-- **Scopes come only from the token.** Not from the request body, not from the conversation, and never from the model. The model is told the user's brands so that it can explain them, but what it is told has no effect on what a query returns.
+- **Scopes come only from the token.** Not from the request body, not from the conversation, and never from the model. The model is told the user's brands so that it can explain them, but what it is told has no effect on what a query returns. The scope is also made visible to the user. A question worded as company-wide ("the company's top products") is cut down to the user's brands like any other, and a model left to say so did it for some questions and not for others. So the application writes a note under every answer that used data, for a user with limited access: "These figures cover only the brands you have access to", with the brands named. The model is told to say "among your brands" as well.
 - **Denied by default.** The assumed claim format is a `scopes` list with entries such as `brand:Levi's`. The CEO's token carries `brand:*`. A token with no brand scope describes a user who may see nothing; seeing everything is always an explicit grant, never the absence of a restriction.
 - **Nothing is cached.** The scopes are read from the token on every request and are not stored in the conversation, so a change to a user's brands takes effect with their next token.
 - **Ownership.** A conversation and its saved reports belong to the token's subject.
@@ -239,6 +239,7 @@ The brief has three requirements here: only analysis questions, no personal data
 | **Scope rewrite** | Rows for brands the user may not see | `safety/scoping.py` |
 | **Column allow-list** | Personal data columns | `safety/scoping.py`, `safety/policy.py` |
 | Database permissions | Writes, other data, and personal data columns, refused again by BigQuery | Production only, on the company's own data |
+| Scope note | A user mistaking figures for the company's | `agent/session.py`, printed by the interface |
 | Output scrubber | Personal data that reached text anyway | `safety/scrubber.py`; Sensitive Data Protection in production |
 | Log hygiene | Personal data in traces and in the audit log | Everything written to either is scrubbed first: the question and the answer, and also the SQL and the error texts |
 
@@ -417,8 +418,8 @@ This was exercised for real: on the free tier the two larger models allow 20 req
 
 **Before deployment.** Five kinds of checks, from cheapest to most expensive. The first four exist in the prototype; the fifth is design.
 
-1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 781 test cases that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results. About 310 of them are the two query corpora run once for each of the three users.
-2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. The chat loop and its confirmation prompt are run end to end the same way, with typed lines. The Gemini adapter is tested against a stand-in for the SDK client that returns real SDK objects, so what is sent to Gemini and how its answers are read are covered without a network. These are also in the 781.
+1. **Deterministic layers: ordinary tests.** The SQL gate, scoping, scrubber, guard, report store and retry logic do not involve the model and are tested exhaustively. The prototype has 786 test cases that run offline in about three seconds, including the hostile-query corpus and row-level comparisons against independently computed results. About 310 of them are the two query corpora run once for each of the three users.
+2. **Agent behaviour with a scripted model.** The model is replaced by a script, so the loop is tested without cost or randomness: self-correction, giving up at the limit, budgets, outages, the delete flow. The chat loop and its confirmation prompt are run end to end the same way, with typed lines. The Gemini adapter is tested against a stand-in for the SDK client that returns real SDK objects, so what is sent to Gemini and how its answers are read are covered without a network. These are also in the 786.
 3. **The same rules on the real dataset.** A further group of 79 tests runs against BigQuery on request, as the client suggested: the schema, every legitimate query after the gate has rewritten it (as free dry-runs), brand scope and personal data on real data, and every analyst example.
 4. **A check on the tests themselves.** A script breaks 101 rules on purpose, one at a time, in a copy of the repository: no brand filter, a delete carried out whatever the user answers, the interface passing on the opposite of the answer, and so on. Every one made a test fail. The first run of this check found gaps, which is how the tests for the chat loop and the adapter came to be written.
 5. **Evaluation with the real model.** A fixed set of questions run against the real model and a fixed copy of the data, scored automatically:

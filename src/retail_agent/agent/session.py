@@ -33,6 +33,7 @@ class TurnResult:
     outcome: str = ""
     confirmation: dict[str, Any] | None = None
     trace: dict[str, Any] | None = None
+    scope_note: str = ""  # said by the application: the figures cover only the user's brands
 
 
 class ChatSession:
@@ -131,4 +132,21 @@ class ChatSession:
             self.tracer.pause()
             return TurnResult(self._trace_id, confirmation=interrupts[0].value)
         trace = self.tracer.end_turn(state["outcome"], state["answer"])
-        return TurnResult(self._trace_id, state["answer"], state["outcome"], trace=trace)
+        return TurnResult(
+            self._trace_id,
+            state["answer"],
+            state["outcome"],
+            trace=trace,
+            scope_note=self._scope_note(trace),
+        )
+
+    def _scope_note(self, trace: dict[str, Any]) -> str:
+        """Written by the application, not the model, so it is always there. Every query is cut
+        down to the user's brands, so a figure is never the company's unless they have them all."""
+        # Only an answer shows figures: a failure message or an apology has nothing to explain.
+        if self.profile.all_brands or trace.get("outcome") != "answered":
+            return ""
+        if not trace.get("sql_queries"):
+            return ""
+        brands = ", ".join(self.profile.brands) or "none"
+        return f"These figures cover only the brands you have access to: {brands}."

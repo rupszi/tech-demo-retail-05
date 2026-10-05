@@ -159,6 +159,8 @@ def main(argv: list[str] | None = None) -> int:
             console.print("\n[dim]Interrupted. That question was dropped.[/]\n")
             continue
         console.print(Markdown(result.answer))
+        if result.scope_note:
+            console.print(f"[dim italic]{escape(result.scope_note)}[/]")
         _footer(result, console)
 
 

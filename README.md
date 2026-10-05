@@ -7,7 +7,7 @@ Built for the OpsFleet technical assignment. The design is in [docs/DESIGN.md](d
 What the prototype does:
 
 - **Answers questions from data.** It writes and runs SQL itself, across several queries when a question needs it, and corrects its own SQL when a query fails.
-- **Keeps each user to their own brands.** Every query is rewritten in code so a user only ever sees the products and sales of the brands their token grants. The CEO sees all; a user with no brand scope sees nothing. (An order that also contains other brands is visible, with only the user's own items; its item count still includes the others. See [D-08](docs/DECISIONS.md#d-08-per-user-brand-scope-is-applied-by-rewriting-table-references).)
+- **Keeps each user to their own brands.** Every query is rewritten in code so a user only ever sees the products and sales of the brands their token grants. The CEO sees all; a user with no brand scope sees nothing. Under every answer that used data, a user with limited access is told that the figures cover only their brands. (An order that also contains other brands is visible, with only the user's own items; its item count still includes the others. See [D-08](docs/DECISIONS.md#d-08-per-user-brand-scope-is-applied-by-rewriting-table-references).)
 - **Never shows personal data.** Names, emails, addresses, postal codes and coordinates cannot be queried at all; customers appear as IDs.
 - **Asks before deleting.** Deleting saved reports needs the user's confirmation, which the model cannot give. Deleting is permanent, and the confirmation says so.
 - **Survives failures.** Bad SQL, empty results, rate limits and outages are handled without crashing or running up cost.
@@ -196,7 +196,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-781 test cases run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network, and they do not read your `.env`. About 310 of them are the two query corpora, hostile and legitimate, run once for each of the three users. The rest include the chat loop with its confirmation prompt, run end to end, and the Gemini adapter against a stand-in client.
+786 test cases run offline in about three seconds. They use the local database and a scripted stand-in for the model, so they need no key, no cloud account and no network, and they do not read your `.env`. About 310 of them are the two query corpora, hostile and legitimate, run once for each of the three users. The rest include the chat loop with its confirmation prompt, run end to end, and the Gemini adapter against a stand-in client.
 
 A second group of 79 tests checks the same rules against the real BigQuery dataset. It needs the Google Cloud setup above and takes about a minute:
 
@@ -226,7 +226,7 @@ src/retail_agent/
   cli/             the chat interface
 config/            sample token payloads for the demo users, and the tone file
 golden_bucket/     sample analyst examples (question, SQL, report)
-tests/             781 offline tests, 79 against BigQuery, and a check of the tests themselves
+tests/             786 offline tests, 79 against BigQuery, and a check of the tests themselves
 docs/              requirements, design and its figures, decisions, example run, client questions
 ```
 

@@ -153,3 +153,10 @@ def test_an_unknown_backend_name_in_the_settings_is_reported(capsys, monkeypatch
     assert app.main(["--list-users"]) == 1
     out = capsys.readouterr().out
     assert "DATA_BACKEND must be one of bigquery, duckdb" in out and "Traceback" not in out
+
+
+def test_the_scope_note_is_printed_under_an_answer_that_used_data(cli):
+    query = says("", call("run_sql", sql="SELECT COUNT(*) AS n FROM orders"))
+    code, out, _, _ = cli([query, says("There are some.")], ["How many orders?"])
+    assert code == 0 and "There are some." in out
+    assert "These figures cover only the brands you have access to" in out

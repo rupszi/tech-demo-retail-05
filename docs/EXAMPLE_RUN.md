@@ -36,7 +36,8 @@ and some of those are wrong:
   After this session was recorded, the sample churn trio was given one more sentence, saying
   that only months whose 90th day has passed count. Asked again, the model reported completed
   months only, and no longer called later months "projected spikes". The recorded answer is
-  the earlier one.
+  the earlier one. The note under answers that says the figures cover only the user's brands
+  was added after these sessions were recorded, so it is not in the transcripts.
 
 The instructions tell the model to state a cause only if a result supports it and to check such
 words against the figures, and it still does this. A check that every figure follows from the

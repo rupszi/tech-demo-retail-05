@@ -3,6 +3,7 @@
 import pytest
 
 from retail_agent.agent.graph import MSG_AUTH, MSG_BUDGET, MSG_UNAVAILABLE
+from retail_agent.agent.tools import TOOL_SPECS
 from retail_agent.llm import LLMResponse, LLMUnavailable, ResilientLLM
 
 from .fakes import ScriptedLLM, SlowModel, call, says, transient
@@ -456,3 +457,37 @@ def test_a_refused_api_key_tells_the_user_to_fix_it_and_not_to_wait(chat):
     result = session.ask("Show revenue")
     assert result.answer == MSG_AUTH and "GEMINI_API_KEY" in result.answer
     assert result.outcome == "failed"
+
+
+def test_every_argument_of_every_tool_is_described_to_the_model():
+    missing = [
+        (tool.name, argument)
+        for tool in TOOL_SPECS
+        for argument, spec in tool.parameters["properties"].items()
+        if not spec.get("description")
+    ]
+    assert missing == []
+
+
+# ---- the user is told that the figures are theirs --------------------------------------------
+def test_a_user_with_limited_access_is_told_the_figures_cover_only_their_brands(chat):
+    session = chat(says("", call("run_sql", sql=COUNT)), says("Here is the ranking."))
+    result = session.ask("What are the company's top products?")
+    assert result.scope_note == (
+        "These figures cover only the brands you have access to: "
+        "Alder & Finch, Brightwave, Foxglove."
+    )
+    assert result.answer == "Here is the ranking."  # the note is the application's, not the model's
+
+
+def test_the_scope_note_is_only_for_answers_that_used_data_and_for_limited_access(chat):
+    no_query = chat(says("We have orders, products and customers."))
+    assert no_query.ask("What data is there?").scope_note == ""
+    everything = chat(says("", call("run_sql", sql=COUNT)), says("Done."), user="carol")
+    assert everything.ask("How many orders?").scope_note == ""  # the CEO sees all brands
+
+
+def test_a_failed_question_gets_no_scope_note_because_it_shows_no_figures(chat):
+    session = chat(says("", call("run_sql", sql=COUNT)), LLMUnavailable("down"))
+    result = session.ask("What are the top products?")
+    assert result.outcome == "failed" and result.scope_note == ""
